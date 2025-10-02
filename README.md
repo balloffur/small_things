@@ -1,1 +1,1 @@
-prime_test_int.h --  constexpr function for primality test with small memory usage
+prime_test_int.h --  constexpr function for primality test with small memory usage for integers
