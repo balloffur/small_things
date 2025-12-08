@@ -93,7 +93,7 @@ private:
     // Внутренняя unbiased функция [0, n)
     uint64_t _next_exclusive(uint64_t n) {
         if (n <= 1) return 0;
-        if ((n & (n-1)) == 0)                     // степень двойки — быстрый путь
+        if ((n & (n-1)) == 0)                  
             return uint64() & (n-1);
 
         uint64_t threshold = (-n) % n;            // Lemire’s unbiased method
@@ -109,9 +109,9 @@ public:
      * @brief Random integer in range [low, high].
      */
     uint64_t uint64(uint64_t low, uint64_t high){
-        if (low > high) return low;               // защита от инвертированного диапазона
+        if (low > high) return low;               
         uint64_t range = high - low + 1;
-        if (range == 0) return low;               // переполнение при low=high=UINT64_MAX
+        if (range == 0) return low;              
         return low + _next_exclusive(range);
     }
 
@@ -144,7 +144,7 @@ public:
     uint64_t uint64_digs(int digs){
         if(digs <= 0 || digs > 19) return 0;
         uint64_t low   = pows_of_ten[digs - 1];
-        uint64_t range = pows_of_ten[digs] - low;   // 9×10^{digs-1}
+        uint64_t range = pows_of_ten[digs] - low;  
         return low + _next_exclusive(range);
     }
 
@@ -166,7 +166,7 @@ public:
                 r = uint64();
                 if(condition(r)) return r;
             }
-            return 0;        // исчерпано количество попыток
+            return 0;        
         }
     }
 
@@ -174,7 +174,6 @@ public:
      * @brief Uniform double in [0,1).
      */
     double real(){
-        // 100% кросс-платформенный и точный способ
         return (uint64() >> 11) * 0x1.0p-53;
     }
 
