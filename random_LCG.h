@@ -11,9 +11,6 @@
     #define LCG64_HAS_CONCEPTS 0
 #endif
 
-/// Default seed value used when no seed is provided.
-constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
-
 /// Precomputed powers of ten used by uint64_digs().
 static constexpr uint64_t pows_of_ten[] = {
     1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,
