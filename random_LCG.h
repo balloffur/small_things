@@ -29,10 +29,16 @@ struct LCG64_XORSHIFT {
         return x;
     }
 
+
     // Генерация числа в диапазоне [low, high]
     uint64_t next(uint64_t low, uint64_t high) {
         uint64_t r = next();
         return low + r % (high - low + 1);
+    }
+
+    //Генерация случайного бита
+    bool bit(){
+        return next()&1;
     }
 
     // Генерация случайного нечётного числа в диапазоне [low, high]
