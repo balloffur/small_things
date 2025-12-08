@@ -12,7 +12,7 @@
 #endif
 
 /// Default seed value used when no seed is provided.
-const uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEF;
+constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
 
 /// Precomputed powers of ten used by uint64_digs().
 static constexpr uint64_t pows_of_ten[] = {
@@ -31,23 +31,20 @@ static constexpr uint64_t pows_of_ten[] = {
  * procedural generation, sampling, randomized algorithms etc.
  */
 struct PRNG64 {
-
     uint64_t state;
 
-    static constexpr uint64_t A  = 6364136223846793005ULL;
-    static constexpr uint64_t C  = 1ULL;
-    static const     uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEF;
-    static constexpr int      XS_S1 = 12;
-    static constexpr int      XS_S2 = 25;
-    static constexpr int      XS_S3 = 27;
+    static constexpr uint64_t A = 6364136223846793005ULL;
+    static constexpr uint64_t C = 1ULL;
+    static constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
 
+    static constexpr int XS_S1 = 12;
+    static constexpr int XS_S2 = 25;
+    static constexpr int XS_S3 = 27;
 
     /**
      * @brief Default deterministic seed constructor.
      */
-    PRNG64(){
-        state = DEFAULT_SEED;
-    }
+    constexpr PRNG64() : state(DEFAULT_SEED) {}
 
     /**
      * @brief Construct PRNG from raw double bits.
@@ -64,13 +61,9 @@ struct PRNG64 {
     template<typename T>
         requires (std::convertible_to<T, uint64_t> &&
                   !std::same_as<std::remove_cvref_t<T>, PRNG64>)
-    explicit PRNG64(T seed){
-        state = static_cast<uint64_t>(seed);
-    }
+    explicit PRNG64(T seed) : state(static_cast<uint64_t>(seed)) {}
 #else
-    explicit PRNG64(uint64_t seed){
-        state = seed;
-    }
+    explicit constexpr PRNG64(uint64_t seed) : state(seed) {}
 #endif
 
     /**
@@ -78,9 +71,9 @@ struct PRNG64 {
      */
     static PRNG64 time_seed(){
         using namespace std::chrono;
-        uint64_t t     = high_resolution_clock::now().time_since_epoch().count();
+        uint64_t t = high_resolution_clock::now().time_since_epoch().count();
         uint64_t stack = reinterpret_cast<uint64_t>(&t);
-        uint64_t seed  = t ^ (stack * 0x9E3779B97F4A7C15ULL);
+        uint64_t seed = t ^ (stack * 0x9E3779B97F4A7C15ULL);
         return PRNG64(seed);
     }
 
@@ -96,25 +89,37 @@ struct PRNG64 {
         return x;
     }
 
+private:
+    // Внутренняя unbiased функция [0, n)
+    uint64_t _next_exclusive(uint64_t n) {
+        if (n <= 1) return 0;
+        if ((n & (n-1)) == 0)                     // степень двойки — быстрый путь
+            return uint64() & (n-1);
+
+        uint64_t threshold = (-n) % n;            // Lemire’s unbiased method
+        while (true) {
+            uint64_t r = uint64();
+            if (r >= threshold)
+                return r % n;
+        }
+    }
+
+public:
     /**
      * @brief Random integer in range [low, high].
      */
     uint64_t uint64(uint64_t low, uint64_t high){
-        uint64_t r = uint64();
-        return low + r % (high - low + 1);
+        if (low > high) return low;               // защита от инвертированного диапазона
+        uint64_t range = high - low + 1;
+        if (range == 0) return low;               // переполнение при low=high=UINT64_MAX
+        return low + _next_exclusive(range);
     }
 
     /**
      * @brief Random integer in [0, high).
      */
     uint64_t uint64_exclusive(uint64_t high){
-        if(high == 0){
-            return 0;
-        }
-        if(high == UINT64_MAX){
-            return uint64();
-        }
-        return uint64() % high;
+        return _next_exclusive(high);
     }
 
     /**
@@ -128,12 +133,8 @@ struct PRNG64 {
      * @brief Bernoulli(p) — biased coin flip returning true ~p.
      */
     bool bit(double p){
-        if(p <= 0.0){
-            return false;
-        }
-        if(p >= 1.0){
-            return true;
-        }
+        if(p <= 0.0) return false;
+        if(p >= 1.0) return true;
         return real() < p;
     }
 
@@ -141,14 +142,11 @@ struct PRNG64 {
      * @brief Integer with exactly `digs` decimal digits.
      */
     uint64_t uint64_digs(int digs){
-        if(digs <= 0 || digs > 19){
-            return 0;
-        }
-        uint64_t low  = pows_of_ten[digs - 1];
-        uint64_t high = pows_of_ten[digs] - 1;
-        return low + uint64() % (high - low + 1);
+        if(digs <= 0 || digs > 19) return 0;
+        uint64_t low   = pows_of_ten[digs - 1];
+        uint64_t range = pows_of_ten[digs] - low;   // 9×10^{digs-1}
+        return low + _next_exclusive(range);
     }
-
 
     static const unsigned int MAX_COUNT_CONDITION_DEFAULT = 100000;
 
@@ -157,33 +155,27 @@ struct PRNG64 {
      */
     template<typename Func>
     uint64_t uint64_cond(Func condition, unsigned int max_count = MAX_COUNT_CONDITION_DEFAULT){
-        uint64_t r = uint64();
+        uint64_t r;
         if(max_count == 0){
-            while(true){
+            do {
                 r = uint64();
-                if(condition(r)){
-                    return r;
-                }
-            }
-        }else{
-            unsigned int count = 0;
-            while(count < max_count){
+            } while(!condition(r));
+            return r;
+        } else {
+            for(unsigned int i = 0; i < max_count; ++i){
                 r = uint64();
-                if(condition(r)){
-                    return r;
-                }
-                count++;
+                if(condition(r)) return r;
             }
+            return 0;        // исчерпано количество попыток
         }
-        return 0;
     }
 
     /**
      * @brief Uniform double in [0,1).
      */
     double real(){
-        uint64_t r = uint64();
-        return (r >> 11) * (1.0 / (1ULL << 53));
+        // 100% кросс-платформенный и точный способ
+        return (uint64() >> 11) * 0x1.0p-53;
     }
 
     /**
