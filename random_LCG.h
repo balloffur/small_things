@@ -11,6 +11,9 @@
     #define LCG64_HAS_CONCEPTS 0
 #endif
 
+/// Default seed value used when no seed is provided.
+constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
+
 /// Precomputed powers of ten used by uint64_digs().
 static constexpr uint64_t pows_of_ten[] = {
     1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,
@@ -27,17 +30,20 @@ static constexpr uint64_t pows_of_ten[] = {
  * Not cryptographically secure — intended for simulation, Monte-Carlo,
  * procedural generation, sampling, randomized algorithms etc.
  */
-struct PRNG64 {
+class PRNG64 {
     uint64_t state;
-
     static constexpr uint64_t A = 6364136223846793005ULL;
     static constexpr uint64_t C = 1ULL;
     static constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
-
+    static const unsigned int MAX_COUNT_CONDITION_DEFAULT = 100000;
     static constexpr int XS_S1 = 12;
     static constexpr int XS_S2 = 25;
     static constexpr int XS_S3 = 27;
 
+    public:
+    
+
+    
     /**
      * @brief Default deterministic seed constructor.
      */
@@ -90,7 +96,7 @@ private:
     // Внутренняя unbiased функция [0, n)
     uint64_t _next_exclusive(uint64_t n) {
         if (n <= 1) return 0;
-        if ((n & (n-1)) == 0)                  
+        if ((n & (n-1)) == 0)                     // степень двойки — быстрый путь
             return uint64() & (n-1);
 
         uint64_t threshold = (-n) % n;            // Lemire’s unbiased method
@@ -106,9 +112,9 @@ public:
      * @brief Random integer in range [low, high].
      */
     uint64_t uint64(uint64_t low, uint64_t high){
-        if (low > high) return low;               
+        if (low > high) return low;               // защита от инвертированного диапазона
         uint64_t range = high - low + 1;
-        if (range == 0) return low;              
+        if (range == 0) return low;               // переполнение при low=high=UINT64_MAX
         return low + _next_exclusive(range);
     }
 
@@ -141,11 +147,11 @@ public:
     uint64_t uint64_digs(int digs){
         if(digs <= 0 || digs > 19) return 0;
         uint64_t low   = pows_of_ten[digs - 1];
-        uint64_t range = pows_of_ten[digs] - low;  
+        uint64_t range = pows_of_ten[digs] - low;   // 9×10^{digs-1}
         return low + _next_exclusive(range);
     }
 
-    static const unsigned int MAX_COUNT_CONDITION_DEFAULT = 100000;
+    
 
     /**
      * @brief Draw values until predicate passes.
@@ -163,7 +169,7 @@ public:
                 r = uint64();
                 if(condition(r)) return r;
             }
-            return 0;        
+            return 0;        // исчерпано количество попыток
         }
     }
 
@@ -171,6 +177,7 @@ public:
      * @brief Uniform double in [0,1).
      */
     double real(){
+        // 100% кросс-платформенный и точный способ
         return (uint64() >> 11) * 0x1.0p-53;
     }
 
