@@ -29,11 +29,11 @@ static constexpr inline uint16_t base16[] = {2, 3};
 
 // Small primes for quick trial division
 static constexpr inline uint64_t small_primes[] =
-    {2,3,5,7,11,13,17,19,23};
+    {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97};
 
 #define MAXUINT32  4294967295u
 #define MAX51      3317444400000000ull
-
+#define MAX_SMALL_SQUARED 9409
 
 static constexpr inline uint64_t powmod64(uint64_t a, uint64_t d, uint64_t mod) {
     __uint128_t r = 1;
@@ -57,7 +57,7 @@ static constexpr inline uint32_t powmod32(uint32_t a, uint32_t d, uint32_t mod) 
     return (uint32_t)r;
 }
 
-
+// Основной цикл Миллера-Рабина
 static constexpr inline bool check_composite32(uint32_t n, uint32_t a, uint32_t d, int s) {
     uint32_t x = powmod32(a, d, n);
     if (x == 1 || x == n - 1) return false;
@@ -65,9 +65,10 @@ static constexpr inline bool check_composite32(uint32_t n, uint32_t a, uint32_t 
         x = (uint64_t)x * x % n;
         if (x == n - 1) return false;
     }
-    return true; // composite
+    return true; 
 }
 
+// Основной цикл Миллера-Рабина
 static constexpr inline bool check_composite64(uint64_t n, uint64_t a, uint64_t d, int s) {
     uint64_t x = powmod64(a, d, n);
     if (x == 1 || x == n - 1) return false;
@@ -75,7 +76,7 @@ static constexpr inline bool check_composite64(uint64_t n, uint64_t a, uint64_t 
         x = (uint64_t)((__uint128_t)x * x % n);
         if (x == n - 1) return false;
     }
-    return true; // composite
+    return true; 
 }
 
 
@@ -112,18 +113,21 @@ inline constexpr bool Miller_Rabbin_64(uint64_t n) {
     return true;
 }
 
-
+//Проверяет число uint64_t на простоту, детерминированно
 constexpr bool is_prime(uint64_t n) {
     if (n < 127) {
         return is_prime_small_bitmask(n);
     }
     for (auto i : small_primes) {
-        if (n % i == 0) return false;
+        if (n % i == 0) return (n==i);
     }
-    if (n < MAXUINT32) {
+    if(n <= MAX_SMALL_SQUARED){
+        return true;
+    }
+    if (n <= MAXUINT32) {
         return Miller_Rabbin_32(n);
     }
-    if (n < MAX51) {
+    if (n <= MAX51) {
         return __Miller_Rabbin_51(n);
     }
     return Miller_Rabbin_64(n);
