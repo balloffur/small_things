@@ -1,3 +1,5 @@
+AI generated README, may contain mistakes
+
 # small_things
 
 **Личная коллекция компактных header-only утилит на C++17/20**  
