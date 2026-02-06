@@ -1,2 +1,122 @@
-primetest_int32.h --  constexpr function for primality test with small memory usage for integers <br>
-factor_int32.hpp -- factorization for int32
+# small_things
+
+**Личная коллекция компактных header-only утилит на C++17/20**  
+(в основном теория чисел, быстрый RNG, случайные графы и простой тайминг)
+
+Всё в одном заголовочном файле — включил и пользуйся.  
+Никаких зависимостей кроме STL, никаких сборок, никаких CMake.
+
+Предназначено для:
+- быстрого прототипирования
+- тестовых вычислений
+- соревновательного программирования
+- Monte-Carlo / рандомизированных алгоритмов
+- экспериментов с простыми числами и графами
+
+Текущая дата последнего обновления описания: февраль 2026
+
+## Содержимое — краткая таблица
+
+| Файл                  | Основное назначение                              | Ключевые функции / классы                              | Диапазон / ограничения                  | Когда брать именно этот файл                     |
+|-----------------------|--------------------------------------------------|--------------------------------------------------------|------------------------------------------|--------------------------------------------------|
+| `primetest_int32.h`   | Самый лёгкий constexpr-тест простоты для int32   | `constexpr bool is_prime(int32_t)`                     | ±2³¹                                     | constexpr, шаблоны, маленькие числа              |
+| `prime_test.h`        | Детерминированный тест простоты для uint64       | `constexpr bool is_prime(uint64_t)`                    | 0 … 2⁶⁴−1                                | любые 64-битные числа, надёжность 100%          |
+| `factor_int32.hpp`    | Факторизация 32-битных чисел                     | `void factor(int/uint32_t, std::vector<int>&)`         | ±2³¹ / 0…2³²                             | разложение чисел до ~2 млрд                      |
+| `prime_random.h`      | Генерация случайных простых чисел                | `random_prime()`, `random_prime_digs(digits)`          | до ~10¹⁹                                 | нужны случайные простые «на лету»                |
+| `random_LCG.h`        | Основной быстрый 64-битный PRNG                  | `class PRNG64` — LCG + XorShift                        | период ~2⁶⁴                              | **главный** источник случайности во всём проекте |
+| `graph.h`             | Простая структура графа (adjacency matrix)       | `struct Graph` — add/remove edge/vert, degree, print   | n ≤ 3000–5000 (O(n²) память)             | небольшие графы, удобный интерфейс               |
+| `rgraph.h`            | Генераторы случайных графов и деревьев           | `random_graph`, `random_tree`, `random_graph_c`, …     | n ≤ 10000 (для деревьев)                 | Erdős–Rényi, связные, Prüfer-деревья, взвешенные |
+| `timing.h`            | Простейший таймер «на коленке»                   | `time_code()` (toggle), `time_labels::time_label`      | наносекунды                              | быстрые замеры, усреднение по итерациям          |
+
+## Подробное описание каждого файла
+
+### primetest_int32.h
+Самый компактный и constexpr-дружественный тест простоты для **int32_t**.  
+- bitmask до 127  
+- trial division до 127  
+- Miller-Rabin с базами 2,3,5  
+- вручную исключены 4 сильных псевдопростых числа в диапазоне  
+→ идеален внутри `constexpr`, шаблонов, метапрограммирования.
+
+### prime_test.h
+Полностью **детерминированный** тест простоты для **всего** диапазона uint64_t.  
+Использует:
+- bitmask до 127  
+- trial division малыми простыми  
+- Miller-Rabin с **оптимальными** наборами баз в зависимости от размера числа:  
+  • < 2³²     → {2,3,61}  
+  • < 3.3·10¹⁵ → {2,3,5,7}  
+  • < 2⁶⁴     → {2, 325, 9375, 28178, 450775, 9780504, 1795265022}  
+→ 0 ложных срабатываний на всём диапазоне.
+
+### factor_int32.hpp
+Простая, но достаточно быстрая факторизация 32-битных чисел.  
+Алгоритм: малые простые → wheel 6k±1 → Miller-Rabin при необходимости.  
+Выводит **все** простые множители (с повторениями) в вектор.
+
+### prime_random.h
+Генераторы случайных простых чисел с хорошей плотностью.  
+- `random_prime(seed)` — случайное простое ~64 бит  
+- `random_prime_digs(digits, seed)` — ровно digits цифр (до 19)  
+Использует primorial-фильтр + таблицу кандидатов → обычно простое с 1–3 попыток.
+
+### random_LCG.h — class PRNG64
+**Основной** генератор случайных чисел проекта.  
+Комбинация LCG + XorShift64 — быстрый, воспроизводимый, удобный API:
+- `uint64()`, `uint64(low,high)`, `uint64_exclusive(n)`  
+- `uint64_digs(digits)` — ровно N цифр  
+- `real()` → [0,1), `real(low,high)`  
+- `bit()`, `bit(p)` — biased/unbiased  
+- `uint64_cond(predicate, max_tries)`  
+- `time_seed()` — засев от часов  
+Поддержка C++20 concepts (опционально).
+
+### graph.h — struct Graph
+Простейшая реализация графа через **матрицу смежности**.  
+Поддерживает:
+- неориентированные / ориентированные  
+- взвешенные / невзвешенные  
+- add/remove edge/vertex, swap, pop  
+- degree / weight (in/out)  
+- print()  
+→ удобно для n ≤ 3000–4000.
+
+### rgraph.h
+Много разных генераторов случайных графов:
+- `random_graph(n,p,seed)` — G(n,p) undirected unweighted  
+- `random_graph_w(…, low,high)` — взвешенный  
+- `random_graph_o(…)` / `random_graph_o_w(…)` — directed  
+- `random_graph_c(…)` / `random_graph_w_c(…)` — **связные** (через random spanning tree)  
+- `random_tree(n,RNG)` / `random_tree_w(…,low,high)` — uniform labeled trees (Prüfer)  
+- `random_graph_o_c(…)` — directed weakly connected  
+
+### timing.h
+Два простых инструмента:
+1. `time_code()` — toggle: первый вызов — старт, второй — стоп + печать ms/us/ns  
+2. `time_labels::time_label` — класс для усреднения по многим итерациям (`time()`, `average()`, `reset()`)
+
+## Пример типичного использования
+
+```cpp
+#include "random_LCG.h"
+#include "prime_test.h"
+#include "rgraph.h"
+#include "timing.h"
+
+int main() {
+    auto rng = PRNG64::time_seed();
+
+    // случайное простое ~18 цифр
+    uint64_t prime = random_prime_digs(18, rng.uint64());
+    printf("Prime: %llu → %s\n", prime, is_prime(prime) ? "yes" : "no");
+
+    // связный взвешенный граф 200 вершин
+    Graph g = random_graph_w_c(200, 0.07, rng.uint64(), 1, 100);
+    g.print();
+
+    time_code();
+    // ... какой-нибудь долгий код ...
+    time_code();  // → печатает время
+
+    return 0;
+}
