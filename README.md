@@ -1,4 +1,4 @@
-AI generated README, may contain mistakes
+This README was AI-assisted and may contain minor inaccuracies.
 
 # small_things
 
