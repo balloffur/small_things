@@ -1,11 +1,383 @@
 #pragma once
-
 #include <cstdint>
 #include <vector>
 #include <utility>
+#include <vector>
+#include <iostream>
+#include <stdexcept>
+#include <utility>
+#include <cstring>
+#include <chrono>
 
-#include "graph.h
-#include "random_LCG.h"
+#if defined(__cpp_concepts) && __cpp_concepts >= 201907L
+    #include <concepts>
+    #include <type_traits>
+    #define LCG64_HAS_CONCEPTS 1
+#else
+    #define LCG64_HAS_CONCEPTS 0
+#endif
+
+/// Default seed value used when no seed is provided.
+constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
+
+/// Precomputed powers of ten used by uint64_digs().
+static constexpr uint64_t pows_of_ten[] = {
+    1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,
+    100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,
+    1000000000000ULL,10000000000000ULL,100000000000000ULL,
+    1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,
+    1000000000000000000ULL,10000000000000000000ULL
+};
+
+/**
+ * @brief Fast 64-bit PRNG based on a combined LCG + XorShift step.
+ *
+ * Compact (64-bit) internal state, deterministic for fixed seed.
+ * Not cryptographically secure — intended for simulation, Monte-Carlo,
+ * procedural generation, sampling, randomized algorithms etc.
+ */
+class PRNG64 {
+    uint64_t state;
+    static constexpr uint64_t A = 6364136223846793005ULL;
+    static constexpr uint64_t C = 1ULL;
+    static constexpr uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
+    static const unsigned int MAX_COUNT_CONDITION_DEFAULT = 100000;
+    static constexpr int XS_S1 = 12;
+    static constexpr int XS_S2 = 25;
+    static constexpr int XS_S3 = 27;
+
+    public:
+    
+
+    
+    /**
+     * @brief Default deterministic seed constructor.
+     */
+    constexpr PRNG64() : state(DEFAULT_SEED) {}
+
+    /**
+     * @brief Construct PRNG from raw double bits.
+     */
+    explicit PRNG64(double seed){
+        static_assert(sizeof(double) == 8, "unexpected double size");
+        std::memcpy(&state, &seed, sizeof(seed));
+    }
+
+#if LCG64_HAS_CONCEPTS
+    /**
+     * @brief Construct from any type convertible to uint64_t.
+     */
+    template<typename T>
+        requires (std::convertible_to<T, uint64_t> &&
+                  !std::same_as<std::remove_cvref_t<T>, PRNG64>)
+    explicit PRNG64(T seed) : state(static_cast<uint64_t>(seed)) {}
+#else
+    explicit constexpr PRNG64(uint64_t seed) : state(seed) {}
+#endif
+
+    /**
+     * @brief Create a PRNG seeded from system time (non-deterministic).
+     */
+    static PRNG64 time_seed(){
+        using namespace std::chrono;
+        uint64_t t = high_resolution_clock::now().time_since_epoch().count();
+        uint64_t stack = reinterpret_cast<uint64_t>(&t);
+        uint64_t seed = t ^ (stack * 0x9E3779B97F4A7C15ULL);
+        return PRNG64(seed);
+    }
+
+    /**
+     * @brief Next random 64-bit value (LCG + XorShift).
+     */
+    uint64_t uint64(){
+        state = state * A + C;
+        uint64_t x = state;
+        x ^= x >> XS_S1;
+        x ^= x << XS_S2;
+        x ^= x >> XS_S3;
+        return x;
+    }
+
+private:
+    // Внутренняя unbiased функция [0, n)
+    uint64_t _next_exclusive(uint64_t n) {
+        if (n <= 1) return 0;
+        if ((n & (n-1)) == 0)                     // степень двойки — быстрый путь
+            return uint64() & (n-1);
+
+        uint64_t threshold = (-n) % n;            // Lemire’s unbiased method
+        while (true) {
+            uint64_t r = uint64();
+            if (r >= threshold)
+                return r % n;
+        }
+    }
+
+public:
+    /**
+     * @brief Random integer in range [low, high].
+     */
+    uint64_t uint64(uint64_t low, uint64_t high){
+        if (low > high) return low;               // защита от инвертированного диапазона
+        uint64_t range = high - low + 1;
+        if (range == 0) return low;               // переполнение при low=high=UINT64_MAX
+        return low + _next_exclusive(range);
+    }
+
+    int64_t int64(int64_t low,int64_t high){
+        if (low >= high) return low;
+        uint64_t range = high - low + 1;
+        return low+_next_exclusive(range);
+    }
+
+    /**
+     * @brief Random integer in [0, high).
+     */
+    uint64_t uint64_exclusive(uint64_t high){
+        return _next_exclusive(high);
+    }
+
+    /**
+     * @brief Bernoulli(p) — fair 50/50 bit.
+     */
+    bool bit(){
+        return uint64() & 1;
+    }
+
+    /**
+     * @brief Bernoulli(p) — biased coin flip returning true ~p.
+     */
+    bool bit(double p){
+        if(p <= 0.0) return false;
+        if(p >= 1.0) return true;
+        return real() < p;
+    }
+
+    /**
+     * @brief Integer with exactly `digs` decimal digits.
+     */
+    uint64_t uint64_digs(int digs){
+        if(digs <= 0 || digs > 19) return 0;
+        uint64_t low   = pows_of_ten[digs - 1];
+        uint64_t range = pows_of_ten[digs] - low;   // 9×10^{digs-1}
+        return low + _next_exclusive(range);
+    }
+
+    
+
+    /**
+     * @brief Draw values until predicate passes.
+     */
+    template<typename Func>
+    uint64_t uint64_cond(Func condition, unsigned int max_count = MAX_COUNT_CONDITION_DEFAULT){
+        uint64_t r;
+        if(max_count == 0){
+            do {
+                r = uint64();
+            } while(!condition(r));
+            return r;
+        } else {
+            for(unsigned int i = 0; i < max_count; ++i){
+                r = uint64();
+                if(condition(r)) return r;
+            }
+            return 0;        // исчерпано количество попыток
+        }
+    }
+
+    /**
+     * @brief Uniform double in [0,1).
+     */
+    double real(){
+        // 100% кросс-платформенный и точный способ
+        return (uint64() >> 11) * 0x1.0p-53;
+    }
+
+    /**
+     * @brief Uniform double in [low, high).
+     */
+    double real(double low, double high){
+        return low + real() * (high - low);
+    }
+};
+
+
+/// @brief i->j edge is [i][j]
+struct Graph{
+    std::vector<std::vector<int>> matrix;
+    int size;
+
+    Graph():size(0),matrix(){}
+
+    //Никаких проверок
+    Graph(int n):size(n),matrix(std::vector<std::vector<int>>(n,std::vector<int>(n))){};
+    //Никаких проверок
+    Graph(const std::vector<std::vector<int>>& v):size(v.size()),matrix(v){
+        if(v.size()>0 && v.size()!=v[0].size()){
+            throw std::invalid_argument("Not quadratic matrix init");
+        } 
+    }
+
+
+
+    void add_edge(int i,int j,int value=1){
+        if(i<0 || j<0 || i>=size || j>=size){throw std::invalid_argument("Index out of bounds");}
+
+        matrix[i][j]=value;
+        matrix[j][i]=value;
+    };
+
+    void remove_edge(int i,int j){
+        if(i<0 || j<0 || i>=size || j>=size){throw std::invalid_argument("Index out of bounds");}
+        matrix[i][j]=0;
+        matrix[j][i]=0;
+    };
+
+    void add_vert(){
+        for(int i=0;i<size;i++){
+            matrix[i].push_back(0);
+        }
+        matrix.push_back(std::vector<int>(size+1));
+        size++;
+    };
+
+    void swap_vert(int i,int j){
+        if(i<0 || j<0 || i>=size || j>=size){throw std::invalid_argument("Index out of bounds");}
+        if(i==j){return;}
+        for(int k=0;k<size;k++){
+            std::swap(matrix[k][i],matrix[k][j]);
+        }
+        for(int k=0;k<size;k++){
+            std::swap(matrix[i][k],matrix[j][k]);
+        }
+
+    };
+    
+
+
+    //removes last vert
+    void pop_vert(){
+        if(size<1){return;}
+        for(int i=0;i<size-1;i++){
+            matrix[i].pop_back();
+        }
+        matrix.pop_back();
+        size--;
+    };
+
+    void remove_vert(int i){
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        if(i!=size-1) swap_vert(i,size-1);
+        pop_vert();
+    };
+
+    int degree(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count++;
+        }
+        return count;
+    }
+
+    int degree_in(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count++;
+        }
+        return count;
+    }
+
+    int degree_out(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[k][i]!=0) count++;
+        }
+        return count;
+    }
+
+    int degree_oriented(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count++;
+        }
+        for(int k=0;k<size;k++){
+            if(matrix[k][i]!=0) count++;
+        }
+        return count;
+    }
+
+     int weight(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count+=matrix[i][k];
+        }
+        return count;
+    }
+
+    int weight_in(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count+=matrix[i][k];
+        }
+        return count;
+    }
+
+    int weight_out(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count+=matrix[i][k];
+        }
+        return count;
+    }
+
+    int weight_oriented(int i) const {
+        if(i<0 || i>=size){
+            throw std::invalid_argument("Index out of bounds");
+        }
+        int count=0;
+        for(int k=0;k<size;k++){
+            if(matrix[i][k]!=0) count+=matrix[i][k];
+        }
+        return count;
+    }
+
+
+    void print() const {
+        for(int i=0;i<size;i++){
+            for(int j=0;j<size;j++){
+                std::cout<<matrix[i][j]<<' ';
+            }
+            std::cout<<"\n";
+        }
+    }
+};
+
+
+
+
 
 /**
  * @file rgraph.h
