@@ -58,11 +58,12 @@ Header-only tools
 Главный генератор случайных чисел проекта.  
 Комбинация LCG + XorShift64:
 - `uint64()`, `uint64(low, high)`
-- `uint64_digs(digits)`
 - `real()`, `real(low, high)`
+- `integer()`, `integer(low,high)`
 - `bit()`, `bit(p)`
 - `uint64_cond(predicate)`
 - `time_seed()`
+- `getrandom_seed()`
 
 Быстрый, воспроизводимый, удобен для алгоритмов.
 
