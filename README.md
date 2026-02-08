@@ -27,7 +27,7 @@ This README was AI-assisted and may contain minor inaccuracies.
 | `prime_test.h` | Детерминированный тест простоты `uint64_t` | `constexpr bool is_prime(uint64_t)` | 0 … 2⁶⁴−1 | 100% надёжность |
 | `factor_int32.hpp` | Факторизация 32-битных чисел | `factor(x, vector&)` | до ~2·10⁹ | быстрые разложения |
 | `prime_random.h` | Случайные простые числа | `random_prime*()` | до ~10¹⁹ | рандом, криптопримеры |
-| `random_LCG.h` | Основной PRNG проекта | `class PRNG64` | период ~2⁶⁴ | быстрый RNG |
+| `rng64.h` | Основной PRNG проекта | `class PRNG64` | период ~2⁶⁴ | быстрый RNG |
 | `graph.h` | Граф через матрицу смежности | `struct Graph` | n ≲ 4k | простота |
 | `rgraph.h` | Генераторы графов и деревьев | `random_graph*` | n ≲ 10k | тесты алгоритмов |
 | `timing.h` | Мини-тайминг | `time_code`, `time_label` | — | быстрые замеры |
@@ -68,7 +68,7 @@ This README was AI-assisted and may contain minor inaccuracies.
 
 Использует primorial-фильтр → обычно простое за 1–3 попытки.
 
-### `random_LCG.h` — `class PRNG64`
+### `rng64.h` — `class PRNG64`
 Главный генератор случайных чисел проекта.  
 Комбинация LCG + XorShift64:
 - `uint64()`, `uint64(low, high)`
@@ -109,7 +109,7 @@ This README was AI-assisted and may contain minor inaccuracies.
 ## Пример использования
 
 ```cpp
-#include "random_LCG.h"
+#include "rng64.h"
 #include "prime_test.h"
 #include "rgraph.h"
 #include "timing.h"
