@@ -8,27 +8,19 @@
 #include <type_traits>
 #include <iterator>
 #include <utility>
+#include <sys/random.h>
 
 namespace rng64 {
+
+
 
 /// Default seed value used when no seed is provided.
 inline constexpr std::uint64_t DEFAULT_SEED = 0xDEADBEEFDEADBEEFULL;
 
-/// Precomputed powers of ten used by uint64_digs().
-inline constexpr std::uint64_t pows_of_ten[] = {
-    1ULL,10ULL,100ULL,1000ULL,10000ULL,100000ULL,1000000ULL,10000000ULL,
-    100000000ULL,1000000000ULL,10000000000ULL,100000000000ULL,
-    1000000000000ULL,10000000000000ULL,100000000000000ULL,
-    1000000000000000ULL,10000000000000000ULL,100000000000000000ULL,
-    1000000000000000000ULL,10000000000000000000ULL
-};
+
 
 class PRNG64 {
 public:
-    // =========================
-    // Public API (interface)
-    // =========================
-
     /// Default deterministic seed constructor.
     constexpr PRNG64();
 
@@ -47,6 +39,9 @@ public:
     /// Create a PRNG seeded from system time (non-deterministic).
     static PRNG64 time_seed();
 
+    /// Create a PRNG seeded from getrandom.
+    static PRNG64 getrandom_seed();
+
     /// Next random 64-bit value (LCG + XorShift).
     std::uint64_t uint64();
 
@@ -61,9 +56,6 @@ public:
 
     /// Bernoulli(p) — biased coin flip returning true ~p.
     bool bit(double p);
-
-    /// Integer with exactly `digs` decimal digits.
-    std::uint64_t uint64_digs(int digs);
 
     /// Draw values until predicate passes. If max_count==0 => infinite loop until success.
     template<typename Func>
@@ -81,18 +73,21 @@ public:
     /// Uniform int in [low, high] (inclusive).
     int integer(int low, int high);
 
-    /// Convenience: allow use as generator (returns next uint64).
-    std::uint64_t operator()() { return uint64(); }
 
     // Random shuffle
     template<typename RandomIt>
     void shuffle(RandomIt first, RandomIt last);
 
 
+     // Adaptors for STL integration
+
+    using result_type = std::uint64_t;
+    static constexpr std::uint64_t min() { return 0; }
+    static constexpr std::uint64_t max() { return std::numeric_limits<std::uint64_t>::max(); }
+    std::uint64_t operator()() { return uint64(); }
+
 private:
-    // =========================
-    // Internals
-    // =========================
+
     std::uint64_t state;
 
     static constexpr std::uint64_t A = 6364136223846793005ULL;
@@ -108,18 +103,23 @@ private:
 
     /// unbiased helper: [0, n)
     std::uint64_t _next_exclusive(std::uint64_t n);
+
+
+
+
+   
 };
 
-// =========================
-// Implementations (inline)
-// =========================
 
 inline constexpr PRNG64::PRNG64() : state(DEFAULT_SEED_LOCAL) {}
+
 
 inline PRNG64::PRNG64(double seed_bits) {
     static_assert(sizeof(double) == 8, "unexpected double size");
     std::memcpy(&state, &seed_bits, sizeof(seed_bits));
 }
+
+
 
 // Template constructor from integral types without bool. No concepts!  
 template<typename T,
@@ -137,6 +137,21 @@ inline PRNG64 PRNG64::time_seed() {
     );
     std::uint64_t stack = reinterpret_cast<std::uint64_t>(&t);
     std::uint64_t seed = t ^ (stack * 0x9E3779B97F4A7C15ULL);
+    return PRNG64(seed);
+}
+
+
+inline PRNG64 PRNG64::getrandom_seed() {
+    std::uint64_t entropy = 0;
+
+    ssize_t r = getrandom(&entropy, sizeof(entropy), 0);
+    if (r != sizeof(entropy)) {
+        throw std::runtime_error("getrandom failed");
+    }
+    std::uint64_t stack = reinterpret_cast<std::uint64_t>(&entropy);
+    std::uint64_t seed =
+        entropy ^ (stack * 0x9E3779B97F4A7C15ULL);
+
     return PRNG64(seed);
 }
 
@@ -183,12 +198,6 @@ inline bool PRNG64::bit(double p) {
     return real() < p;
 }
 
-inline std::uint64_t PRNG64::uint64_digs(int digs) {
-    if (digs <= 0 || digs > 19) return 0;
-    const std::uint64_t low = pows_of_ten[digs - 1];
-    const std::uint64_t range = pows_of_ten[digs] - low;
-    return low + _next_exclusive(range);
-}
 
 template<typename Func>
 inline std::uint64_t PRNG64::uint64_cond(Func condition, unsigned int max_count) {
@@ -206,7 +215,6 @@ inline std::uint64_t PRNG64::uint64_cond(Func condition, unsigned int max_count)
 }
 
 inline double PRNG64::real() {
-    // exact and portable: takes top 53 bits
     return (uint64() >> 11) * 0x1.0p-53;
 }
 
