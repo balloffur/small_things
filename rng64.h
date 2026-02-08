@@ -145,9 +145,6 @@ inline PRNG64 PRNG64::getrandom_seed() {
     std::uint64_t entropy = 0;
 
     ssize_t r = getrandom(&entropy, sizeof(entropy), 0);
-    if (r != sizeof(entropy)) {
-        throw std::runtime_error("getrandom failed");
-    }
     std::uint64_t stack = reinterpret_cast<std::uint64_t>(&entropy);
     std::uint64_t seed =
         entropy ^ (stack * 0x9E3779B97F4A7C15ULL);
