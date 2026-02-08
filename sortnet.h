@@ -1,12 +1,12 @@
-#ifndef _SORTNET_
-#define _SORTNET_
+#ifndef SORTNET_FAST_H
+#define SORTNET_FAST_H
+
 #include <array>
 #include <cstdint>
-#include <utility>
+#include <iterator>
 #include <type_traits>
+#include <utility>
 
-
-// Sorting networks for <=16 elements
 namespace sortnet {
 
 struct op {
@@ -14,59 +14,46 @@ struct op {
     std::uint8_t j;
 };
 
+
 template<class T>
 inline void cswap(T& a, T& b) {
-    if (b < a) std::swap(a, b);
+    if (b < a) { auto tmp = a; a = b; b = tmp; }
 }
 
 template<std::size_t N>
 struct net;
 
-/* ===== 2 ===== */
-template<>
-struct net<2> {
-    static constexpr std::array<op, 1> ops = {{
-        {0,1}
-    }};
+template<> struct net<2> {
+    inline static constexpr std::array<op, 1> ops = {{{0,1}}};
 };
 
-/* ===== 3 ===== */
-template<>
-struct net<3> {
-    static constexpr std::array<op, 3> ops = {{
-        {0,1},{1,2},{0,1}
-    }};
+template<> struct net<3> {
+    inline static constexpr std::array<op, 3> ops = {{{0,1},{1,2},{0,1}}};
 };
 
-/* ===== 4 ===== */
-template<>
-struct net<4> {
-    static constexpr std::array<op, 5> ops = {{
-        {0,1},{2,3},{0,2},{1,3},{1,2}
-    }};
+
+template<> struct net<4> {
+    inline static constexpr std::array<op, 5> ops = {{{0,1},{2,3},{0,2},{1,3},{1,2}}};
 };
 
-/* ===== 5 ===== */
-template<>
-struct net<5> {
-    static constexpr std::array<op, 9> ops = {{
+
+template<> struct net<5> {
+    inline static constexpr std::array<op, 9> ops = {{
         {0,1},{3,4},{2,4},{2,3},{0,3},
         {1,4},{1,3},{0,2},{1,2}
     }};
 };
 
-/* ===== 6 ===== */
-template<>
-struct net<6> {
-    static constexpr std::array<op, 12> ops = {{
+
+template<> struct net<6> {
+    inline static constexpr std::array<op, 12> ops = {{
         {1,2},{4,5},{0,2},{3,5},{0,1},{3,4},
         {2,5},{0,3},{1,4},{2,4},{1,3},{2,3}
     }};
 };
 
-/* ===== 7 ===== */
-template<>
-struct net<7> {
+
+template<> struct net<7> {
     inline static constexpr std::array<op, 16> ops = {{
         {0,6},{2,3},{4,5},
         {0,2},{1,4},{3,6},
@@ -77,10 +64,8 @@ struct net<7> {
     }};
 };
 
-/* ===== 8 ===== */
 
-template<>
-struct net<8> {
+template<> struct net<8> {
     inline static constexpr std::array<op, 19> ops = {{
         {0,1},{2,3},{4,5},{6,7},
         {0,2},{1,3},{4,6},{5,7},
@@ -91,9 +76,8 @@ struct net<8> {
     }};
 };
 
-/* ===== 9 ===== */
-template<>
-struct net<9> {
+
+template<> struct net<9> {
     inline static constexpr std::array<op, 25> ops = {{
         {0,3},{1,7},{2,5},{4,8},
         {0,7},{2,4},{3,8},{5,6},
@@ -105,9 +89,7 @@ struct net<9> {
     }};
 };
 
-/* ===== 10 ===== */
-template<>
-struct net<10> {
+template<> struct net<10> {
     inline static constexpr std::array<op, 29> ops = {{
         {0,8},{1,9},{2,7},{3,5},{4,6},
         {0,2},{1,4},{5,8},{7,9},
@@ -120,9 +102,8 @@ struct net<10> {
     }};
 };
 
-/* ===== 11 ===== */
-template<>
-struct net<11> {
+
+template<> struct net<11> {
     inline static constexpr std::array<op, 35> ops = {{
         {0,9},{1,6},{2,4},{3,7},{5,8},
         {0,1},{3,5},{4,10},{6,9},{7,8},
@@ -135,9 +116,8 @@ struct net<11> {
     }};
 };
 
-/* ===== 12 ===== */
-template<>
-struct net<12> {
+
+template<> struct net<12> {
     inline static constexpr std::array<op, 39> ops = {{
         {0,8},{1,7},{2,6},{3,11},{4,10},{5,9},
         {0,1},{2,5},{3,4},{6,9},{7,8},{10,11},
@@ -151,9 +131,8 @@ struct net<12> {
     }};
 };
 
-/* ===== 13 ===== */
-template<>
-struct net<13> {
+
+template<> struct net<13> {
     inline static constexpr std::array<op, 45> ops = {{
         {0,12},{1,10},{2,9},{3,7},{5,11},{6,8},
         {1,6},{2,3},{4,11},{7,9},{8,10},
@@ -168,9 +147,9 @@ struct net<13> {
     }};
 };
 
-/* ===== 14 ===== */
-template<>
-struct net<14> {
+
+
+template<> struct net<14> {
     inline static constexpr std::array<op, 51> ops = {{
         {0,1},{2,3},{4,5},{6,7},{8,9},{10,11},{12,13},
         {0,2},{1,3},{4,8},{5,9},{10,12},{11,13},
@@ -185,9 +164,8 @@ struct net<14> {
     }};
 };
 
-/* ===== 15 ===== */
-template<>
-struct net<15> {
+
+template<> struct net<15> {
     inline static constexpr std::array<op, 56> ops = {{
         {1,2},{3,10},{4,14},{5,8},{6,13},{7,12},{9,11},
         {0,14},{1,5},{2,8},{3,7},{6,9},{10,12},{11,13},
@@ -202,9 +180,8 @@ struct net<15> {
     }};
 };
 
-/* ===== 16 ===== */
-template<>
-struct net<16> {
+
+template<> struct net<16> {
     inline static constexpr std::array<op, 60> ops = {{
         {0,13},{1,12},{2,15},{3,14},{4,8},{5,6},{7,11},{9,10},
         {0,5},{1,7},{2,9},{3,4},{6,13},{8,14},{10,15},{11,12},
@@ -220,41 +197,51 @@ struct net<16> {
 };
 
 
-// Sorting fixed size, takes iterator 
-template<std::size_t N, class It>
-inline void sort_n(It begin) {
-    for (auto [i,j] : net<N>::ops)
-        cswap(*(begin + i), *(begin + j));
+template<std::size_t N, class It, std::size_t... K>
+inline void sort_n_impl(It begin, std::index_sequence<K...>) {
+    // fold expression: cswap(...) для каждого компаратора
+    (cswap(*(begin + net<N>::ops[K].i), *(begin + net<N>::ops[K].j)), ...);
 }
 
-// Sorting <=16 objects with sorting networks
+template<std::size_t N, class It>
+inline void sort_n(It begin) {
+    sort_n_impl<N>(begin, std::make_index_sequence<net<N>::ops.size()>{});
+}
+
+
+// smallsort n<17
 template<class It>
 inline void smallsort(It begin, It end) {
-    using diff_t = typename std::iterator_traits<It>::difference_type;
+    static_assert(std::is_same_v<
+        typename std::iterator_traits<It>::iterator_category,
+        std::random_access_iterator_tag> ||
+        std::is_base_of_v<std::random_access_iterator_tag,
+        typename std::iterator_traits<It>::iterator_category>,
+        "sortnet::smallsort requires random access iterators");
 
-    diff_t n = end - begin;
+    auto n = end - begin;
     if (n <= 1) return;
 
-    if (n <= 16) {
-        switch (static_cast<int>(n)) {
-            case 2:  sort_n<2>(begin);  break;
-            case 3:  sort_n<3>(begin);  break;
-            case 4:  sort_n<4>(begin);  break;
-            case 5:  sort_n<5>(begin);  break;
-            case 6:  sort_n<6>(begin);  break;
-            case 7:  sort_n<7>(begin);  break;
-            case 8:  sort_n<8>(begin);  break;
-            case 9:  sort_n<9>(begin);  break;
-            case 10: sort_n<10>(begin); break;
-            case 11: sort_n<11>(begin); break;
-            case 12: sort_n<12>(begin); break;
-            case 13: sort_n<13>(begin); break;
-            case 14: sort_n<14>(begin); break;
-            case 15: sort_n<15>(begin); break;
-            case 16: sort_n<16>(begin); break;
-            default: break;
-        }
-        return;
+    switch ((int)n) {
+        case 2:  sort_n<2>(begin);  break;
+        case 3:  sort_n<3>(begin);  break;
+        case 4:  sort_n<4>(begin);  break;
+        case 5:  sort_n<5>(begin);  break;
+        case 6:  sort_n<6>(begin);  break;
+        case 7:  sort_n<7>(begin);  break;
+        case 8:  sort_n<8>(begin);  break;
+        case 9:  sort_n<9>(begin);  break;
+        case 10: sort_n<10>(begin); break;
+        case 11: sort_n<11>(begin); break;
+        case 12: sort_n<12>(begin); break;
+        case 13: sort_n<13>(begin); break;
+        case 14: sort_n<14>(begin); break;
+        case 15: sort_n<15>(begin); break;
+        case 16: sort_n<16>(begin); break;
+        default:
+            // Если больше 16, зовём квиксорт?
+            std::sort(begin, end);
+            break;
     }
 }
 
