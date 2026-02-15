@@ -1,157 +1,580 @@
 # cyph
 
-------------------------------------------------------------------------
+`cyph` — консольный инструмент для **поточного** (streaming) **аутентифицированного** шифрования файлов с контейнерами:
+
+- **`.cyph`** — зашифрованный контейнер с содержимым файла (AEAD stream).
+- **`.cyphkey`** — «обёрнутый» (wrapped) контейнер, который хранит **ключевой материал** (ключ/секрет) внутри зашифрованного контейнера.
+
+> Реализация опирается **только на libsodium**. Собственных крипто‑алгоритмов не реализуется.
+
+---
 
-## Overview
+## Содержание
+
+- [Ключевые возможности](#ключевые-возможности)
+- [Криптография](#криптография)
+- [Сборка](#сборка)
+- [Быстрый старт](#быстрый-старт)
+- [Ключи и их нормализация](#ключи-и-их-нормализация)
+- [Директивы (опции) — подробно](#директивы-опции--подробно)
+  - [Справка и утилиты](#справка-и-утилиты)
+  - [Шифрование и расшифрование](#шифрование-и-расшифрование)
+  - [Источники ключей: `-k` и `-K`](#источники-ключей--k-и--k)
+  - [`.cyphkey` (wrapped keyfiles)](#cyphkey-wrapped-keyfiles)
+  - [Exchange / обмен ключами: `-e`](#exchange--обмен-ключами--e)
+  - [KDF-уровни: `-level`](#kdf-уровни--level)
+  - [Вывод в stdout: `-s`](#вывод-в-stdout--s)
+  - [Восстановление имени: `-d`](#восстановление-имени--d)
+  - [Анонимизация имени: `-anon`](#анонимизация-имени--anon)
+  - [Удаление после успеха: `-WIPE`](#удаление-после-успеха--wipe)
+  - [Создание `.cyphkey` из файла: `-key`](#создание-cyphkey-из-файла--key)
+  - [Генерация случайного ключа: `-gen`](#генерация-случайного-ключа--gen)
+  - [Выходной путь: `-o`](#выходной-путь--o)
+- [Шорткаты (positional режим)](#шорткаты-positional-режим)
+- [Формат контейнера и «что защищено»](#формат-контейнера-и-что-защищено)
+- [Практические сценарии](#практические-сценарии)
+- [Замечания по безопасности](#замечания-по-безопасности)
+- [Планы](#планы)
+- [Лицензия](#лицензия)
 
-cyph is a command-line file encryption tool that produces:
+---
 
--   `.cyph` encrypted containers (streaming authenticated encryption)
--   `.cyphkey` wrapped key containers
--   Password-based key derivation (Argon2id)
--   Public-key key exchange (`-e`) using Curve25519
+## Ключевые возможности
 
-The tool uses libsodium for all cryptographic primitives.
+- Поточное шифрование больших файлов (не нужно читать файл целиком в память).
+- AEAD‑аутентификация (подмена/повреждение данных обнаруживается).
+- KDF (Argon2id через libsodium `crypto_pwhash`) с параметрами, **сохранёнными в заголовке контейнера**.
+- Wrapped keyfiles `.cyphkey`:
+  - хранение бинарных/текстовых ключей в зашифрованном контейнере,
+  - защита ключа «мастер‑паролем» (`-K`).
+- Простая схема ECDH‑обмена (`-e`) на Curve25519 с «человеко‑читаемым» отпечатком (6 слов).
 
-------------------------------------------------------------------------
+---
 
-## Cryptographic Primitives
+## Криптография
 
-cyph relies exclusively on libsodium:
+`cyph` использует примитивы libsodium:
 
--   XChaCha20-Poly1305 (secretstream API)
--   Argon2id (`crypto_pwhash`)
--   Curve25519 (ECDH)
--   BLAKE2b (generic hash for fingerprint and shared key derivation)
+- **XChaCha20‑Poly1305** (libsodium **secretstream API**) для поточного AEAD.
+- **Argon2id** (`crypto_pwhash`) для получения ключа шифрования из парольного материала.
+- **Curve25519** для ECDH в режиме обмена (`-e`).
+- **BLAKE2b** (`crypto_generichash`) для:
+  - отпечатка публичного ключа (fingerprint),
+  - финального вывода общего ключа из ECDH‑секрета + контекста.
 
-No custom cryptographic algorithms are implemented.
+---
 
-------------------------------------------------------------------------
+## Сборка
 
-## Build Requirements
+### Требования
 
--   C++17 compatible compiler (g++ / clang / MinGW)
--   libsodium (development package)
--   Standard C++ library
+- C++17‑компилятор (g++ / clang / MinGW)
+- `libsodium` (dev‑пакет)
+- стандартная C++ библиотека
 
-------------------------------------------------------------------------
+### Установка libsodium
 
-## Installing libsodium
+**Debian / Ubuntu:**
+```bash
+sudo apt update
+sudo apt install libsodium-dev
+```
 
-### Debian / Ubuntu
+**Windows (MSYS2):**
+```bash
+pacman -S mingw-w64-x86_64-libsodium
+```
 
-    sudo apt update
-    sudo apt install libsodium-dev
+### Компиляция
 
-### Windows (MSYS2)
+**Linux (libsodium статически, libc динамически):**
+```bash
+g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph   -Wl,-Bstatic -lsodium -Wl,-Bdynamic
+```
 
-    pacman -S mingw-w64-x86_64-libsodium
+**Linux (полностью статический бинарник):**
+```bash
+g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph   -static -static-libgcc -static-libstdc++ -lsodium
+```
 
-------------------------------------------------------------------------
+**Windows (MinGW полностью статически):**
+```bash
+x86_64-w64-mingw32-g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph.exe   -static -static-libgcc -static-libstdc++ -lsodium
+```
 
-## Compilation
+---
 
-### Linux (libsodium static, libc dynamic)
+## Быстрый старт
 
-    g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph       -Wl,-Bstatic -lsodium -Wl,-Bdynamic
+### 1) Шифрование (ключ вводится интерактивно)
 
-### Linux (fully static binary)
+```bash
+cyph -f file.txt -k?
+# или самый короткий вариант:
+cyph file.txt
+```
 
-    g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph       -static -static-libgcc -static-libstdc++ -lsodium
+Результат: `file.txt.cyph` (если не указан `-o`).
 
-### Windows (MinGW fully static)
+### 2) Расшифрование (восстановление имени по метаданным)
 
-    x86_64-w64-mingw32-g++ -std=c++17 -O2 -Wall -Wextra cyph.cpp -o cyph.exe       -static -static-libgcc -static-libstdc++ -lsodium
+```bash
+cyph -i file.txt.cyph -k? -d
+# или шорткат:
+cyph file.txt.cyph
+```
 
-------------------------------------------------------------------------
+По умолчанию в шорткат‑режиме для `.cyph` включено `-d`, то есть файл будет восстановлен под исходным именем (если вы не использовали `-anon` при шифровании).
 
-## Basic Usage
+### 3) Использование keyfile
 
-### Encrypt
+```bash
+cyph -f file.txt -k key.txt
+cyph -i file.txt.cyph -k key.txt -d
+```
 
-    cyph -f file.txt -k?
+---
 
-### Decrypt
+## Ключи и их нормализация
 
-    cyph -i file.txt.cyph -k?
+`cyph` работает с «ключевым материалом» (key material) и из него производит реальный ключ шифрования через Argon2id.
 
-### Shorthand
+### Нормализация текстовых ключей
 
-    cyph file.txt
-    cyph file.txt.cyph
-    cyph file.txt key.txt
+Текстовые ключи **нормализуются** одинаково в трёх случаях:
 
-------------------------------------------------------------------------
+- `-k?` (интерактивный ввод),
+- `-k=<text>` (inline),
+- `-k <file.txt>` (именно `.txt`).
 
-## Key Sources
+Нормализация = **перевод в нижний регистр** + **удаление всех пробельных символов**.
 
--   -k <file> key from file
--   -k=<text> inline key
--   -k? interactive prompt
--   .cyphkey wrapped key container (-K master key for wrapped key files)
+Пример:  
+`"My Key 123"` → `"mykey123"`
 
-Text keys are normalized: - Lowercase conversion - Whitespace removed
+> Важно: из-за нормализации фактический пароль отличается от «как вы его набрали». Это удобно, но помните об этом при совместимости и миграции.
 
-Example: “My Key 123” becomes “mykey123”
+### Бинарные keyfiles
 
-------------------------------------------------------------------------
+Если `-k <file>` **не** оканчивается на `.txt`, содержимое читается как **сырые байты** без изменений.
 
-## Wrapped Key Files (.cyphkey)
+---
 
-Create:
+## Директивы (опции) — подробно
 
-    cyph -key rawkey.bin -o wrapped -K?
+Ниже — описание **каждой** директивы и типовые примеры.
 
-Use:
+### Справка и утилиты
 
-    cyph -f file.txt -k wrapped.cyphkey -K?
+#### `--help` / `-h` / `-help`
+Печатает краткую справку по использованию и опциям.
 
-------------------------------------------------------------------------
+```bash
+cyph --help
+```
 
-## Exchange Mode (-e)
+#### `--version`
+Печатает версию.
 
-Step 1:
+```bash
+cyph --version
+```
 
-    cyph -e -k? -o mykey
+#### `-man`
+Выводит полный учебник/мануал (tutorial + internals) в stderr.
 
-Step 2:
+```bash
+cyph -man
+```
 
-    cyph -e mykey.cyphkey -k?
+#### `-manprint`
+Записывает полный мануал в файл `cyph_manual.txt` в текущей директории.
 
-The shared key replaces the temporary private key.
+```bash
+cyph -manprint
+# -> Written: cyph_manual.txt
+```
 
+---
 
-## KDF Levels
+### Шифрование и расшифрование
 
--   -level 0 interactive
--   -level 1 moderate
--   -level 2 sensitive
+#### `-f <file...>`
+Включает режим **шифрования** и задаёт один или несколько входных файлов.
 
-Parameters are stored in container header.
+- Можно перечислять несколько путей подряд:
+  ```bash
+  cyph -f a.txt b.bin photo.jpg -k?
+  ```
 
-------------------------------------------------------------------------
+- Если указано несколько файлов и задан `-o <dir>`, `-o` трактуется как **директория назначения**.
 
-## What cyph Protects
+#### `-i <file.cyph...>`
+Включает режим **расшифрования** и задаёт один или несколько `.cyph` контейнеров.
 
--   Confidentiality of file contents
--   Authenticated key exchange
+```bash
+cyph -i a.txt.cyph b.bin.cyph -k? -d
+```
 
-## What It Does Not Protect
+---
 
--   Metadata
+### Источники ключей: `-k` и `-K`
 
-------------------------------------------------------------------------
+`-k` — основной ключ (для `.cyph`).  
+`-K` — мастер‑ключ (для `.cyphkey`, когда основной ключ задан через wrapped keyfile).
 
-## Future Plans
+#### `-k <file>`
+Берёт ключевой материал из файла:
 
--   Native Windows GUI
--   Drag-and-drop encryption
--   Integrated exchange wizard
--   Password strength indicator
--   QR export for public keys
+- Если файл заканчивается на `.txt` → применяется нормализация (lowercase + remove whitespace).
+- Иначе файл читается как бинарный ключ без изменений.
 
-------------------------------------------------------------------------
+Примеры:
 
-## License
+```bash
+cyph -f secret.txt -k pass.txt
+cyph -f secret.txt -k rawkey.bin
+```
+
+#### `-k=<text>`
+Inline‑ключ (строка после `=`), **нормализуется**.
+
+```bash
+cyph -f secret.txt -k="My Key 123"
+# фактически будет использован ключевой материал "mykey123"
+```
+
+> В шеллах иногда удобнее без кавычек, но учитывайте пробелы/экранирование.
+
+#### `-k?`
+Интерактивный ввод ключа из stdin, затем **нормализация**.
+
+```bash
+cyph -f secret.txt -k?
+```
+
+#### `-K <file>` / `-K=<text>` / `-K?`
+Аналогично `-k`, но для мастер‑ключа:
+
+- нужен при использовании `-k <something.cyphkey>`,
+- нужен при создании `.cyphkey` через `-key`.
+
+Примеры:
+
+```bash
+cyph -i data.cyph -k wrapped.cyphkey -K? -d
+cyph -key rawkey.bin -o wrapped -K master.txt
+```
+
+---
+
+### `.cyphkey` (wrapped keyfiles)
+
+`.cyphkey` — это **обычный** контейнер cyph, но полезная нагрузка — **ключевые байты**.
+
+#### Использование `.cyphkey` как ключа для файла
+
+Если вы делаете:
+
+```bash
+cyph -f file.txt -k wrapped.cyphkey -K?
+```
+
+то `cyph`:
+1. берёт мастер‑ключ из `-K`,
+2. расшифровывает `.cyphkey` **в память** и получает настоящий ключевой материал,
+3. использует эти байты как ключевой материал для шифрования `file.txt`.
+
+> `cyph` **никогда** не печатает и не сохраняет расшифрованное содержимое `.cyphkey` на диск.
+
+---
+
+### Exchange / обмен ключами: `-e`
+
+`-e` реализует простой ECDH‑обмен, чтобы получить общий секрет и сохранить его в `.cyphkey` файле.
+
+Модель: **2 шага**.
+
+#### Шаг 1: создать локальный exchange‑файл и показать публичный ключ
+
+```bash
+cyph -e -k? -o mykey
+```
+
+Что происходит:
+- генерируется Curve25519 keypair,
+- приватный ключ сохраняется **зашифрованным** внутри `mykey.cyphkey`,
+- в stdout печатается:
+  - публичный ключ в текстовом формате `cyphx1:...`,
+  - fingerprint из 6 слов (для сверки).
+
+#### Шаг 2: финализировать — ввести публичный ключ собеседника и подтвердить fingerprint
+
+```bash
+cyph -e mykey.cyphkey -k?
+```
+
+Что происходит:
+- приватный ключ читается из `mykey.cyphkey` (расшифровка ключом `-k`),
+- вы вводите публичный ключ другой стороны (`cyphx1:...`),
+- `cyph` выводит fingerprint другой стороны и спрашивает подтверждение,
+- вычисляется ECDH‑секрет и из него выводится **общий ключ**,
+- файл `mykey.cyphkey` **перезаписывается** и теперь содержит уже общий ключ (shared key) внутри.
+
+> Важно: `-e` использует `-k` как «пароль» для защиты exchange‑файла (и затем shared‑key файла).  
+> То есть `-k` в режиме `-e` не является «данными для шифрования файла», а защищает ваш `.cyphkey`.
+
+---
+
+### KDF-уровни: `-level`
+
+`-level N` выбирает параметры Argon2id (`crypto_pwhash`) и сохраняет их в заголовке контейнера, чтобы расшифрование всегда могло повторить KDF.
+
+- `-level 0` — **interactive** (быстрее, обычно достаточно).
+- `-level 1` — **moderate**.
+- `-level 2` — **sensitive** (самый «тяжёлый»).
+
+Примеры:
+
+```bash
+cyph -f secret.txt -k? -level 0
+cyph -f secret.txt -k? -level 2
+```
+
+> При расшифровании `-level` указывать **не нужно**: параметры уже внутри контейнера.
+
+---
+
+### Вывод в stdout: `-s`
+
+`-s` (decrypt only) выводит расшифрованные данные в **stdout**.
+
+- Можно комбинировать с записью в файл (если задан выходной путь), либо использовать только stdout.
+- Удобно для пайпов:
+
+```bash
+cyph -i file.txt.cyph -k? -s > file.txt
+# или:
+cyph -i file.txt.cyph -k? -s | head
+```
+
+> Обратите внимание: бинарные данные в stdout — это нормально, но следите, чтобы терминал/pipe не ломал вывод.
+
+---
+
+### Восстановление имени: `-d`
+
+`-d` (decrypt) восстанавливает исходное имя файла из **первого зашифрованного фрейма** (meta frame).
+
+Пример:
+
+```bash
+cyph -i file.txt.cyph -k? -d
+```
+
+- В positional‑шорткате `cyph file.cyph` — `-d` включается автоматически.
+
+---
+
+### Анонимизация имени: `-anon`
+
+`-anon` (encrypt only) вместо реального имени файла записывает в meta frame строку `"anonymous"`.
+
+```bash
+cyph -f secret.txt -k? -anon
+# при расшифровании с -d файл будет восстановлен как "anonymous"
+```
+
+---
+
+### Удаление после успеха: `-WIPE`
+
+`-WIPE` включает best‑effort удаление файлов **после успешной операции**.
+
+- При **шифровании**:
+  - удаляются исходные файлы, указанные через `-f`,
+  - если ключ брался из файла (`-k <file>`), удаляется и keyfile.
+- При **расшифровании**:
+  - если ключ брался из файла (`-k <file>`), удаляется keyfile.
+
+Перед удалением `cyph` просит подтверждение.
+
+Пример:
+
+```bash
+cyph -f secret.txt -k pass.txt -WIPE
+```
+
+> Важно: это **не гарантированное безопасное стирание**, особенно на SSD и/или journaling FS.
+
+---
+
+### Создание `.cyphkey` из файла: `-key`
+
+`-key <keyfile>` включает режим **обёртки ключа**: содержимое `keyfile` будет зашифровано в `.cyphkey` под мастер‑ключом `-K`.
+
+Обязательные параметры:
+- `-key <keyfile>`
+- `-o <out_name_or_path>`
+- `-K <...>` / `-K=<...>` / `-K?`
+
+Примеры:
+
+```bash
+# обернуть бинарный ключ
+cyph -key rawkey.bin -o wrapped -K?
+
+# обернуть текстовый ключ (содержимое берётся AS-IS, без нормализации!)
+cyph -key pass.txt -o wrapped_pass -K master.txt
+```
+
+---
+
+### Генерация случайного ключа: `-gen`
+
+`-gen` генерирует случайный печатный ключ (по умолчанию 64 символа: `a-z0-9`).
+
+- Без `-o` печатает ключ в stdout:
+  ```bash
+  cyph -gen
+  ```
+- С `-o` сохраняет ключ в файл:
+  ```bash
+  cyph -gen -o newkey.txt
+  ```
+
+---
+
+### Выходной путь: `-o`
+
+`-o` задаёт выходной путь:
+
+- В режиме **шифрования**:
+  - если шифруется **один** файл → `-o` может быть именем файла или путём; расширение `.cyph` добавится автоматически,
+  - если шифруется **несколько** файлов → `-o` трактуется как **директория**, и файлы складываются туда под своими именами + `.cyph`.
+
+Примеры:
+
+```bash
+cyph -f a.txt -k? -o out
+cyph -f a.txt b.txt -k? -o encrypted/
+```
+
+- В режиме **расшифрования**:
+  - если `-o` задан и расшифровывается один файл → `-o` это конкретный путь сохранения,
+  - если расшифровывается несколько файлов → `-o` это директория назначения.
+
+```bash
+cyph -i a.txt.cyph -k? -d -o restored.txt
+cyph -i a.txt.cyph b.bin.cyph -k? -d -o restored/
+```
+
+---
+
+## Шорткаты (positional режим)
+
+Если вы запускаете `cyph` **без любых опций**, только с позиционными аргументами, включается shorthand‑логика.
+
+### 1 аргумент
+
+- `cyph file.cyph`  
+  → **decrypt**, ключ через `-k?`, включено `-d`
+
+- `cyph plaintext`  
+  → **encrypt**, ключ через `-k?`
+
+### 2 аргумента
+
+- `cyph file.cyph key.cyphkey`  
+  → decrypt, ключ из `.cyphkey`, мастер‑ключ через `-K?`, включено `-d`
+
+- `cyph file.cyph keyfile`  
+  → decrypt, ключ из файла, включено `-d`
+
+- `cyph plaintext keyfile` (оба не `.cyph`)  
+  → encrypt plaintext, ключ из файла
+
+---
+
+## Формат контейнера и «что защищено»
+
+### Что защищено
+
+- Конфиденциальность содержимого файла.
+- Целостность/аутентичность данных (AEAD).
+- В режиме `-e` — подтверждение отпечатка (fingerprint) снижает риск MITM при ручной сверке.
+
+### Что **не** защищено
+
+- Внешние метаданные файловой системы (размеры, времена, права и т. п.).
+- Имя `.cyph` файла как объекта ФС (его задаёте вы).
+
+### Внутренняя структура (кратко)
+
+Контейнер:
+
+- `MAGIC[8]` + `algo_ver(1)` + `flags(1)` + `opslimit(8)` + `memlimit(8)`
+- `SALT(16)` + `secretstream_header(24)`
+- затем фреймы:
+  - `uint32 length` + `ciphertext[length]`
+
+Первый фрейм — meta‑имя (для `-d`), затем данные чанками (`CHUNK = 1 MiB`) через `crypto_secretstream_xchacha20poly1305`.
+
+---
+
+## Практические сценарии
+
+### 1) Шифрование пачки файлов
+
+```bash
+cyph -f *.txt -k? -level 1 -o encrypted/
+```
+
+### 2) Общий высокоэнтропийный ключ в `.cyphkey`
+
+1) Сгенерировать ключ:
+```bash
+cyph -gen -o rawkey.txt
+```
+
+2) Обернуть ключ мастер‑паролем:
+```bash
+cyph -key rawkey.txt -o shared_key -K?
+# -> shared_key.cyphkey
+```
+
+3) Использовать для шифрования:
+```bash
+cyph -f secret.txt -k shared_key.cyphkey -K?
+```
+
+### 3) Расшифровать и вывести в stdout
+
+```bash
+cyph -i secret.txt.cyph -k? -s > secret.txt
+```
+
+---
+
+## Замечания по безопасности
+
+- Для парольных ключей используйте `-level 1` или `-level 2` против перебора (ценой времени/памяти).
+- Для максимальной стойкости используйте **бинарные ключи** (например, 32–64 байта), храня их в `.cyphkey`.
+- `-WIPE` — удобство, но **не** «secure erase».
+- Fingerprint в `-e` сверяйте по независимому каналу.
+
+---
+
+## Планы
+
+- Нативный Windows GUI
+- Drag-and-drop шифрование
+- Exchange wizard
+- Индикатор сложности пароля
+- QR‑экспорт публичных ключей
+
+---
+
+## Лицензия
 
 To be defined.
