@@ -88,8 +88,7 @@ No custom cryptographic algorithms are implemented.
 -   -k <file> key from file
 -   -k=<text> inline key
 -   -k? interactive prompt
--   .cyphkey wrapped key container
--   -K master key for wrapped key files
+-   .cyphkey wrapped key container (-K master key for wrapped key files)
 
 Text keys are normalized: - Lowercase conversion - Whitespace removed
 
@@ -135,16 +134,11 @@ Parameters are stored in container header.
 ## What cyph Protects
 
 -   Confidentiality of file contents
--   Integrity protection
--   Resistance to offline brute-force
 -   Authenticated key exchange
 
 ## What It Does Not Protect
 
 -   Metadata
--   Compromised systems
--   Weak passwords
--   Physical seizure of unlocked devices
 
 ------------------------------------------------------------------------
 
