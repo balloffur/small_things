@@ -38,6 +38,21 @@ static constexpr const char* MANUAL_FILE = "cyph_manual.txt";
  * Utility helpers
  * ============================ */
 
+
+/**
+ * @brief Remove all whitespace, preserving case (useful for base64/key strings).
+ */
+static std::string strip_ws(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char ch : s) {
+        if (std::isspace(ch)) continue;
+        out.push_back(static_cast<char>(ch));
+    }
+    return out;
+}
+
+
 /**
  * @brief Check whether a path ends with a given extension.
  * @param path Input path string.
@@ -206,6 +221,122 @@ static std::vector<unsigned char> prompt_key_normalized(const std::string& promp
     return out;
 }
 
+/**
+ * @brief Ask for a Yes/No confirmation.
+ */
+static bool confirm_yesno(const std::string& prompt) {
+    std::cerr << prompt;
+    std::string ans;
+    std::getline(std::cin, ans);
+
+    auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+    while (!ans.empty() && is_space(static_cast<unsigned char>(ans.front()))) ans.erase(ans.begin());
+    while (!ans.empty() && is_space(static_cast<unsigned char>(ans.back()))) ans.pop_back();
+    for (auto& c : ans) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return (ans == "yes" || ans == "y");
+}
+
+/* ============================
+ * Exchange (-e): public keys + fingerprint + shared key
+ * ============================ */
+
+static const char* FP_WORDS[500] = {
+"apple","river","stone","light","forest","silver","garden","cloud","ocean","sunset","field","mountain","flower","meadow","shadow","wind","rain","thunder","spark","ember","leaf","branch","valley","island","harbor",
+"planet","star","comet","galaxy","orbit","grove","lake","bridge","castle","tower","village","desert","canyon","prairie","glacier","tundra","reef","lagoon","harvest","orchard","cottage","path","trail","stream","water",
+"earth","metal","crystal","pebble","granite","marble","sand","cliff","ridge","shore","coast","bay","fjord","delta","plain","hill","wood","breeze","storm","frost","flame","smoke","cloudy","sunrise","twilight",
+"morning","evening","midnight","noon","spring","summer","autumn","winter","north","south","east","west","circle","square","triangle","spiral","arrow","spear","shield","sword","anchor","compass","signal","beacon","lantern",
+"feather","cotton","linen","silk","canvas","thread","needle","button","pocket","collar","sleeve","ribbon","fabric","gold","copper","iron","nickel","bronze","steel","ruby","pearl","amber","jade","topaz","opal",
+"coffee","tea","cocoa","bread","butter","honey","sugar","salt","pepper","spice","olive","berry","cherry","melon","lemon","lime","peach","plum","grape","mango","papaya","guava","fig","date","apricot",
+"eagle","falcon","sparrow","robin","raven","otter","beaver","badger","fox","wolf","tiger","lion","panda","koala","lemur","zebra","horse","camel","yak","whale","dolphin","seal","coral","shark","trout",
+"alpha","bravo","charlie","delta","echo","foxtrot","golf","hotel","india","juliet","kilo","lima","oscar","nectar","romeo","piper","quartz","radar","sierra","tango","uniform","vector","whiskey","xray","yodel",
+"zinc","argon","neon","radon","helium","carbon","oxygen","nitrogen","sulfur","chlorine","barium","calcium","sodium","potassium","magnesium","silicon","photon","electron","proton","atom","molecule","quantum","circuit","cipher","matrix",
+"platinum","golden","crimson","scarlet","violet","indigo","azure","cyan","maroon","khaki","navy","lilac","cream","charcoal","rust","cobalt","turquoise","burgundy","salmon","magenta","beige","chartreuse","cerulean","lavender","tan",
+"window","door","roof","floor","ceiling","wall","brick","stonework","tile","beam","pillar","arch","gate","lock","key","clock","mirror","frame","table","chair","desk","shelf","drawer","carpet","curtain",
+"engine","motor","gear","wheel","axle","spring","lever","piston","valve","cable","copperwire","battery","socket","switch","button","screen","sensor","server","router","packet","code","script","kernel","logic","binary",
+"paper","pencil","brush","canvasboard","palette","ink","chalk","marker","notebook","journal","letter","envelope","stamp","book","novel","poem","story","chapter","index","page","margin","cover","spine","binder","folder",
+"smile","laugh","whisper","shout","dream","hope","trust","honor","brave","calm","clear","swift","quiet","bright","sharp","bold","rapid","gentle","steady","simple","solid","proud","loyal","kind","happy",
+"gardenia","tulip","rose","daisy","iris","lily","poppy","violetflower","orchid","sunflower","marigold","thyme","basil","mintleaf","sage","rosemary","lavenderherb","oak","maple","birch","cedar","pine","willow","elm","ivy",
+"travel","journey","voyage","flight","sail","drive","ride","walk","climb","dive","swim","run","dash","glide","drift","float","wander","explore","search","find","discover","build","craft","create","forge",
+"music","melody","rhythm","harmony","tempo","lyric","tune","chord","note","sound","echoing","voice","chorus","opera","jazz","blues","folk","rock","dance","drum","flute","violin","guitar","piano","harp",
+"market","trade","value","profit","supply","demand","credit","debit","ledger","coin","token","ticket","price","cost","budget","tax","grant","loan","cash","fund","share","bond","trustee","estate","asset",
+"rapidly","slowly","truly","clearly","warmly","coolly","kindly","boldly","brightly","gently","firmly","softly","quietly","surely","simply","calmly","easily","lightly","widely","deeply","strongly","openly","closely","plainly","fully",
+"alphaone","bravetwo","thirdwave","fourwind","fivespot","sixpath","sevenhill","eightpeak","nineroad","tentrail","elevenoak","twelvestar","thirteenbay","fourteenlake","fifteenfield","sixteenrock","seventeensky","eighteencave","nineteenwood","twentysand","thirtybird","fortycloud","fiftystone","sixtyriver","seventyshore"
+};
+
+
+static std::string fingerprint6_from_pubkey_bytes(const unsigned char* pk, size_t pk_len) {
+    unsigned char h[32];
+    crypto_generichash_state st;
+    crypto_generichash_init(&st, nullptr, 0, sizeof(h));
+    const char* ctx = "cyph-fp-v1";
+    crypto_generichash_update(&st, reinterpret_cast<const unsigned char*>(ctx), std::strlen(ctx));
+    crypto_generichash_update(&st, pk, pk_len);
+    crypto_generichash_final(&st, h, sizeof(h));
+
+    const auto& words = FP_WORDS;
+    std::string out;
+    out.reserve(64);
+    for (int i = 0; i < 6; i++) {
+        uint16_t x = (static_cast<uint16_t>(h[i * 2]) << 8) | static_cast<uint16_t>(h[i * 2 + 1]);
+        size_t idx = static_cast<size_t>(x % 500u);
+        if (i) out.push_back('-');
+        out += words[idx];
+    }
+    sodium_memzero(h, sizeof(h));
+    return out;
+}
+
+static std::string pubkey_to_text_cyphx1(const unsigned char pk[crypto_kx_PUBLICKEYBYTES]) {
+    const size_t b64_len = sodium_base64_ENCODED_LEN(crypto_kx_PUBLICKEYBYTES, sodium_base64_VARIANT_ORIGINAL);
+    std::string b64;
+    b64.resize(b64_len);
+    sodium_bin2base64(b64.data(), b64.size(), pk, crypto_kx_PUBLICKEYBYTES, sodium_base64_VARIANT_ORIGINAL);
+    if (!b64.empty() && b64.back() == '\0') b64.pop_back();
+    return std::string("cyphx1:") + b64;
+}
+
+static std::vector<unsigned char> pubkey_from_text_cyphx1(const std::string& s) {
+    const std::string prefix = "cyphx1:";
+    if (s.rfind(prefix, 0) != 0) throw std::runtime_error("Bad public key format (expected cyphx1:...)");
+    std::string b64 = s.substr(prefix.size());
+
+    std::vector<unsigned char> pk(crypto_kx_PUBLICKEYBYTES);
+    size_t bin_len = 0;
+    if (sodium_base642bin(pk.data(), pk.size(),
+                          b64.c_str(), b64.size(),
+                          nullptr, &bin_len, nullptr,
+                          sodium_base64_VARIANT_ORIGINAL) != 0 || bin_len != crypto_kx_PUBLICKEYBYTES) {
+        throw std::runtime_error("Bad public key base64 (decode failed)");
+    }
+    return pk;
+}
+
+static std::vector<unsigned char> derive_shared_key_v1(const unsigned char my_pk[crypto_kx_PUBLICKEYBYTES],
+                                                       const unsigned char peer_pk[crypto_kx_PUBLICKEYBYTES],
+                                                       const unsigned char raw_shared[crypto_scalarmult_BYTES]) {
+    // Deterministic ordering so both sides derive same bytes regardless of "client/server" roles.
+    const unsigned char* a_pk = my_pk;
+    const unsigned char* b_pk = peer_pk;
+    if (sodium_memcmp(a_pk, b_pk, crypto_kx_PUBLICKEYBYTES) > 0) {
+        a_pk = peer_pk;
+        b_pk = my_pk;
+    }
+
+    unsigned char out[crypto_secretstream_xchacha20poly1305_KEYBYTES];
+    crypto_generichash_state st;
+    crypto_generichash_init(&st, nullptr, 0, sizeof(out));
+    const char* ctx = "cyph-shared-key-v1";
+    crypto_generichash_update(&st, reinterpret_cast<const unsigned char*>(ctx), std::strlen(ctx));
+    crypto_generichash_update(&st, a_pk, crypto_kx_PUBLICKEYBYTES);
+    crypto_generichash_update(&st, b_pk, crypto_kx_PUBLICKEYBYTES);
+    crypto_generichash_update(&st, raw_shared, crypto_scalarmult_BYTES);
+    crypto_generichash_final(&st, out, sizeof(out));
+
+    std::vector<unsigned char> v(out, out + sizeof(out));
+    sodium_memzero(out, sizeof(out));
+    return v;
+}
+
 /* ============================
  * Manual text
  * ============================ */
@@ -362,6 +493,18 @@ If you pass only positional files (no options starting with '-'):
   cyph plaintext keyfile   (both not .cyph)
     -> encrypt first using second as keyfile
 
+10) Exchange (-e) (simple key agreement for a shared keyfile)
+-------------------------------------------------------------
+Step 1 (create local exchange key and print public key + fingerprint):
+  cyph -e -k? -o mykey
+  (writes mykey.cyphkey with encrypted private key)
+
+Step 2 (finalize: enter peer public key, confirm fingerprint, overwrite file with shared key):
+  cyph -e mykey.cyphkey -k?
+  (prompts for peer public key string "cyphx1:..."; prints fingerprint and asks confirmation)
+
+The shared key is stored encrypted in the same .cyphkey file, replacing the setup private key.
+
 That’s it.
 )";
 
@@ -378,6 +521,8 @@ USAGE:
   cyph -man
   cyph -manprint
   cyph -gen [-o <path>]
+  cyph -e -k <...> -o <name_or_path>
+  cyph -e <file.cyphkey> -k <...>
 
 ENCRYPT:
   cyph -f <file...> -k <keyfile|key.cyphkey> [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
@@ -395,6 +540,10 @@ WRAPPED KEY (.cyphkey):
 
 CREATE .cyphkey (wrap a key file):
   cyph -key <keyfile> -o <name_or_path> (-K <file> | -K=<text> | -K?) [-level N]
+
+EXCHANGE (-e):
+  Step 1: cyph -e -k <...> -o <name_or_path>
+  Step 2: cyph -e <name_or_path.cyphkey> -k <...>
 
 OPTIONS:
   -level N   : 0=interactive, 1=moderate, 2=sensitive (stored in header)
@@ -524,7 +673,7 @@ static std::vector<unsigned char> key_from_inline_text_normalized(const std::str
  * ============================ */
 
 /** @brief Program mode. */
-enum class Mode { None, Encrypt, Decrypt, Gen, KeyWrap };
+enum class Mode { None, Encrypt, Decrypt, Gen, KeyWrap, Exchange };
 /** @brief Key source type. */
 enum class KeySrc { None, File, Inline, Prompt };
 
@@ -568,6 +717,9 @@ struct Args {
 
     bool keywrap = false;       ///< -key <file>
     std::string keywrap_input_keyfile;
+
+    bool exchange = false;              ///< -e
+    std::string exchange_keyfile;       ///< optional arg to -e (step2)
 };
 
 /**
@@ -711,6 +863,13 @@ static Args parse_args(int argc, char** argv) {
             a.keywrap = true;
             a.mode = Mode::KeyWrap;
             a.keywrap_input_keyfile = need(i, "-key");
+        } else if (arg == "-e") {
+            a.exchange = true;
+            a.mode = Mode::Exchange;
+            // optional argument: keyfile for step2 if next token is positional
+            if (i + 1 < argc && !looks_like_option(argv[i + 1])) {
+                a.exchange_keyfile = std::string(argv[++i]);
+            }
         } else if (arg == "-f") {
             a.mode = Mode::Encrypt;
             while (i + 1 < argc && !looks_like_option(argv[i + 1])) {
@@ -730,6 +889,18 @@ static Args parse_args(int argc, char** argv) {
 
     if (a.show_help || a.show_version || a.show_man || a.man_print) return a;
     if (a.mode == Mode::Gen) return a;
+
+    if (a.mode == Mode::Exchange) {
+        if (!a.key.is_set()) throw std::runtime_error("Key required for -e: -k <file> / -k=<text> / -k?");
+        if (a.exchange_keyfile.empty()) {
+            // step1
+            if (a.out.empty()) throw std::runtime_error("Missing -o <name_or_path> for -e (step1)");
+        } else {
+            // step2
+            if (!a.out.empty()) throw std::runtime_error("-o is not used with -e <file> (step2)");
+        }
+        return a;
+    }
 
     if (a.mode == Mode::KeyWrap) {
         if (a.keywrap_input_keyfile.empty()) throw std::runtime_error("Missing key file for -key");
@@ -1361,6 +1532,114 @@ static void create_cyphkey_file(const std::string& input_keyfile,
     secure_wipe(plain);
 }
 
+/**
+ * @brief Create a .cyphkey container by encrypting bytes from memory using password key material.
+ */
+static void create_cyphkey_from_bytes(const std::vector<unsigned char>& plain,
+                                      const std::string& out_name_or_path,
+                                      const std::vector<unsigned char>& password_key_material,
+                                      const KdfParams& kdf,
+                                      const std::string& meta_name) {
+    std::string out_path = ensure_cyphkey_ext(out_name_or_path);
+
+    fs::path outp(out_path);
+    if (!outp.parent_path().empty()) ensure_dir_exists(outp.parent_path());
+
+    std::ofstream out(out_path, std::ios::binary | std::ios::trunc);
+    if (!out) throw std::runtime_error("Cannot open output: " + out_path);
+
+    ContainerHeader h{};
+    h.algo_ver = ALGO_VER;
+    h.flags = 0;
+    h.opslimit = kdf.opslimit;
+    h.memlimit_u64 = static_cast<unsigned long long>(kdf.memlimit);
+    randombytes_buf(h.salt, sizeof h.salt);
+
+    unsigned char key[crypto_secretstream_xchacha20poly1305_KEYBYTES];
+    derive_key(key, h.salt, password_key_material, kdf);
+
+    crypto_secretstream_xchacha20poly1305_state st;
+    if (crypto_secretstream_xchacha20poly1305_init_push(&st, h.ss_header, key) != 0) {
+        sodium_memzero(key, sizeof key);
+        throw std::runtime_error("secretstream init_push failed");
+    }
+
+    write_container_header(out, h);
+
+    // meta frame
+    std::vector<unsigned char> meta(meta_name.begin(), meta_name.end());
+    std::vector<unsigned char> meta_ct(meta.size() + crypto_secretstream_xchacha20poly1305_ABYTES);
+    unsigned long long meta_ct_len = 0;
+    if (crypto_secretstream_xchacha20poly1305_push(
+            &st, meta_ct.data(), &meta_ct_len,
+            meta.data(), meta.size(),
+            nullptr, 0,
+            crypto_secretstream_xchacha20poly1305_TAG_MESSAGE) != 0) {
+        sodium_memzero(key, sizeof key);
+        throw std::runtime_error("secretstream push(meta) failed");
+    }
+    meta_ct.resize(static_cast<size_t>(meta_ct_len));
+    uint32_t L = static_cast<uint32_t>(meta_ct.size());
+    out.write(reinterpret_cast<const char*>(&L), sizeof(L));
+    out.write(reinterpret_cast<const char*>(meta_ct.data()),
+              static_cast<std::streamsize>(meta_ct.size()));
+    if (!out) {
+        sodium_memzero(key, sizeof key);
+        throw std::runtime_error("Failed to write meta frame: " + out_path);
+    }
+
+    std::vector<unsigned char> ct(CHUNK + crypto_secretstream_xchacha20poly1305_ABYTES);
+    size_t off = 0;
+
+    while (off < plain.size()) {
+        size_t take = std::min(CHUNK, plain.size() - off);
+        unsigned char tag = ((off + take) == plain.size())
+                                ? crypto_secretstream_xchacha20poly1305_TAG_FINAL
+                                : crypto_secretstream_xchacha20poly1305_TAG_MESSAGE;
+
+        unsigned long long ct_len = 0;
+        if (crypto_secretstream_xchacha20poly1305_push(
+                &st, ct.data(), &ct_len,
+                plain.data() + off, take,
+                nullptr, 0,
+                tag) != 0) {
+            sodium_memzero(key, sizeof key);
+            throw std::runtime_error("secretstream push(data) failed");
+        }
+
+        uint32_t len32 = static_cast<uint32_t>(ct_len);
+        out.write(reinterpret_cast<const char*>(&len32), sizeof(len32));
+        out.write(reinterpret_cast<const char*>(ct.data()), static_cast<std::streamsize>(ct_len));
+        if (!out) {
+            sodium_memzero(key, sizeof key);
+            throw std::runtime_error("Failed to write ciphertext frame");
+        }
+
+        off += take;
+    }
+
+    if (plain.empty()) {
+        unsigned long long ct_len = 0;
+        if (crypto_secretstream_xchacha20poly1305_push(
+                &st, ct.data(), &ct_len,
+                nullptr, 0,
+                nullptr, 0,
+                crypto_secretstream_xchacha20poly1305_TAG_FINAL) != 0) {
+            sodium_memzero(key, sizeof key);
+            throw std::runtime_error("secretstream push(final-empty) failed");
+        }
+        uint32_t len32 = static_cast<uint32_t>(ct_len);
+        out.write(reinterpret_cast<const char*>(&len32), sizeof(len32));
+        out.write(reinterpret_cast<const char*>(ct.data()), static_cast<std::streamsize>(ct_len));
+        if (!out) {
+            sodium_memzero(key, sizeof key);
+            throw std::runtime_error("Failed to write ciphertext frame");
+        }
+    }
+
+    sodium_memzero(key, sizeof key);
+}
+
 /* ============================
  * -gen
  * ============================ */
@@ -1426,6 +1705,106 @@ int main(int argc, char** argv) {
         }
 
         const KdfParams kdf = kdf_params_for_level(args.level);
+
+        if (args.mode == Mode::Exchange) {
+            // Exchange step 1: generate keypair, store private key encrypted in .cyphkey, print public key + fingerprint.
+            // Exchange step 2: load private key from .cyphkey, accept peer public key, confirm fingerprint, overwrite file with shared key.
+            std::vector<unsigned char> pw_mat = material_from_keyspec_normalized(args.key, "Enter key (-k?): ");
+
+            if (pw_mat.empty()) throw std::runtime_error("Key material is empty (after normalization)");
+
+            if (args.exchange_keyfile.empty()) {
+                // step1
+                unsigned char pk[crypto_kx_PUBLICKEYBYTES];
+                unsigned char sk[crypto_kx_SECRETKEYBYTES];
+                crypto_kx_keypair(pk, sk);
+
+                std::vector<unsigned char> sk_bytes(sk, sk + crypto_kx_SECRETKEYBYTES);
+                sodium_memzero(sk, sizeof(sk));
+
+                create_cyphkey_from_bytes(sk_bytes, args.out, pw_mat, kdf, "ex_priv_v1");
+                secure_wipe(sk_bytes);
+
+                const std::string pub_text = pubkey_to_text_cyphx1(pk);
+                const std::string fp = fingerprint6_from_pubkey_bytes(pk, crypto_kx_PUBLICKEYBYTES);
+
+                std::cout << "Exchange keyfile created: " << ensure_cyphkey_ext(args.out) << "\n";
+                std::cout << "Public key:\n" << pub_text << "\n";
+                std::cout << "Fingerprint (6 words): " << fp << "\n";
+                std::cout << "Now run on the same machine:\n";
+                std::cout << "  cyph -e " << ensure_cyphkey_ext(args.out) << " -k?\n";
+
+                sodium_memzero(pk, sizeof(pk));
+                secure_wipe(pw_mat);
+                return 0;
+            } else {
+                // step2
+                const std::string keyfile_path = ensure_cyphkey_ext(args.exchange_keyfile);
+
+                std::vector<unsigned char> sk_bytes = decrypt_payload_to_bytes(keyfile_path, pw_mat);
+                if (sk_bytes.size() != crypto_kx_SECRETKEYBYTES) {
+                    secure_wipe(sk_bytes);
+                    secure_wipe(pw_mat);
+                    throw std::runtime_error("Exchange file does not contain a valid private key (unexpected payload length)");
+                }
+
+                unsigned char sk[crypto_kx_SECRETKEYBYTES];
+                std::memcpy(sk, sk_bytes.data(), crypto_kx_SECRETKEYBYTES);
+                secure_wipe(sk_bytes);
+
+                // derive our public key from secret key to include in the shared KDF context
+                unsigned char my_pk[crypto_kx_PUBLICKEYBYTES];
+                crypto_scalarmult_curve25519_base(my_pk, sk);
+
+                // read peer public key string (we only strip whitespace; base64 is case-sensitive)
+                std::string peer_pub_line = prompt_line("Enter peer public key (cyphx1:...): ");
+                std::string peer_pub_ws = strip_ws(peer_pub_line);
+                if (!peer_pub_line.empty()) sodium_memzero(peer_pub_line.data(), peer_pub_line.size());
+
+                std::vector<unsigned char> peer_pk_vec = pubkey_from_text_cyphx1(peer_pub_ws);
+                if (!peer_pub_ws.empty()) sodium_memzero(peer_pub_ws.data(), peer_pub_ws.size());
+
+                unsigned char peer_pk[crypto_kx_PUBLICKEYBYTES];
+                std::memcpy(peer_pk, peer_pk_vec.data(), crypto_kx_PUBLICKEYBYTES);
+                secure_wipe(peer_pk_vec);
+
+                const std::string fp = fingerprint6_from_pubkey_bytes(peer_pk, crypto_kx_PUBLICKEYBYTES);
+                std::cerr << "Peer fingerprint (6 words): " << fp << "\n";
+                if (!confirm_yesno("Does the fingerprint match (Yes/No)? ")) {
+                    sodium_memzero(sk, sizeof(sk));
+                    sodium_memzero(my_pk, sizeof(my_pk));
+                    sodium_memzero(peer_pk, sizeof(peer_pk));
+                    secure_wipe(pw_mat);
+                    throw std::runtime_error("Fingerprint not confirmed by user");
+                }
+
+                // ECDH: raw shared secret
+                unsigned char raw_shared[crypto_scalarmult_BYTES];
+                if (crypto_scalarmult_curve25519(raw_shared, sk, peer_pk) != 0) {
+                    sodium_memzero(sk, sizeof(sk));
+                    sodium_memzero(my_pk, sizeof(my_pk));
+                    sodium_memzero(peer_pk, sizeof(peer_pk));
+                    sodium_memzero(raw_shared, sizeof(raw_shared));
+                    secure_wipe(pw_mat);
+                    throw std::runtime_error("Key exchange failed (crypto_scalarmult_curve25519)");
+                }
+
+                std::vector<unsigned char> shared_key = derive_shared_key_v1(my_pk, peer_pk, raw_shared);
+                sodium_memzero(raw_shared, sizeof(raw_shared));
+
+                // overwrite the same file with shared key material encrypted under local password
+                create_cyphkey_from_bytes(shared_key, keyfile_path, pw_mat, kdf, "ex_shared_v1");
+
+                std::cout << "Shared key stored in: " << keyfile_path << "\n";
+
+                secure_wipe(shared_key);
+                sodium_memzero(sk, sizeof(sk));
+                sodium_memzero(my_pk, sizeof(my_pk));
+                sodium_memzero(peer_pk, sizeof(peer_pk));
+                secure_wipe(pw_mat);
+                return 0;
+            }
+        }
 
         if (args.mode == Mode::KeyWrap) {
             std::vector<unsigned char> master = resolve_master_key_material(args);
