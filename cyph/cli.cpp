@@ -1,4 +1,58 @@
-// client_terminal.cpp
+// cli.cpp
+/*
+
+# Windows (MSYS2 MinGW x64 shell)
+
+pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-libsodium
+
+ls -l /mingw64/lib/libsodium.a
+ls -l /mingw64/lib/libwinpthread.a
+ls -l /mingw64/lib/libstdc++.a
+ls -l /mingw64/lib/libgcc.a
+
+# Надёжный вариант
+g++ -std=c++17 -O2 -Wall -Wextra \
+  cli.cpp core.cpp -o cyph.exe \
+  -static \
+  -Wl,-Bstatic -lsodium -lwinpthread -lstdc++ -lgcc -lgcc_eh \
+  -Wl,-Bdynamic -lws2_32 -liphlpapi
+
+# Альтернатива
+g++ -std=c++17 -O2 -Wall -Wextra \
+  cli.cpp core.cpp -o cyph.exe \
+  -static -static-libgcc -static-libstdc++ \
+  -Wl,-Bstatic -lsodium -lwinpthread \
+  -Wl,-Bdynamic -lws2_32 -liphlpapi
+
+ldd ./cyph.exe
+
+
+# Linux / WSL (glibc)
+
+sudo apt update
+sudo apt install -y build-essential pkg-config libsodium-dev
+
+g++ -std=c++17 -O2 -Wall -Wextra \
+  cli.cpp core.cpp -o cyph \
+  -static -static-libgcc -static-libstdc++ \
+  $(pkg-config --static --libs libsodium)
+
+ldd ./cyph
+
+
+# Linux / WSL (musl)
+
+sudo apt install -y musl-tools
+
+musl-g++ -std=c++17 -O2 -Wall -Wextra \
+  cli.cpp core.cpp -o cyph \
+  -static \
+  $(pkg-config --static --libs libsodium)
+
+# Если musl-libsodium не находится — собрать вручную:
+# CC=musl-gcc ./configure --prefix=/usr/local/musl && make && sudo make install
+*/
+
 #include "core.h"
 #include <sodium.h>
 
@@ -145,8 +199,7 @@ static bool confirm_yesno(const std::string& prompt) {
     return (ans == "yes" || ans == "y");
 }
 
-static const char* MANUAL_TEXT =
-R"(cyph manual (tutorial + internals)
+static const char* MANUAL_TEXT = R"(cyph manual (tutorial + internals)
 ================================
 
 0) What cyph is
@@ -156,11 +209,11 @@ It also supports wrapped key files ".cyphkey" (an encrypted container that store
 
 1) Quick start
 --------------
-Encrypt a file (prompt for key):
+Encrypt a file (prompts for key by default):
   cyph secret.txt
-  (will ask "Enter key (-k?):", then write "secret.txt.cyph" unless you specify -o)
+  (asks "Enter key (-k?):", then writes "secret.txt.cyph" unless you specify -o)
 
-Decrypt a file (prompt for key, restore stored name):
+Decrypt a file (prompts for key by default, restore stored name):
   cyph secret.txt.cyph
   (asks for key, writes restored filename via -d behavior)
 
@@ -188,23 +241,29 @@ You can provide key material in three ways:
   -k?
      Prompt a key from stdin, then normalize (lowercase + remove whitespace).
 
+Defaults:
+  If -k is omitted in -f/-i mode, cyph behaves as if you specified -k? (interactive prompt).
+
 NOTE: normalization makes keys easier to type/copy but also changes what the "real" password is.
 Example: "My Key 123" becomes "mykey123".
 
 3) Wrapped key files (.cyphkey) and master keys (-K)
------------------------------------------------------
+----------------------------------------------------
 A .cyphkey is a cyph container whose payload bytes are a key.
 cyph never prints or writes the decrypted contents of a .cyphkey.
 
-Usage:
+Decrypt using a wrapped key (explicit):
   cyph -i data.cyph -k data.cyphkey -K? -d
-or shorthand:
+
+Shorthand:
   cyph data.cyph data.cyphkey
+  (prompts for master key automatically)
 
 Master key sources are analogous to -k:
-  -K <file>    /  -K=<text>  /  -K?
+  -K <file>  /  -K=<text>  /  -K?
 
-If you use -k <something.cyphkey> then you MUST provide a master key explicitly (-K...).
+Defaults:
+  If -k points to *.cyphkey and -K is omitted, cyph behaves as if you specified -K? (interactive prompt).
 
 4) Creating a .cyphkey (wrapping a key file)
 --------------------------------------------
@@ -215,6 +274,9 @@ Wrap an existing key file (binary or text) into a .cyphkey:
 or with a master key file:
   cyph -key rawkey.bin -o mywrapped -K master.txt
   (extension ".cyphkey" is auto-added)
+
+Defaults:
+  If -K is omitted for -key, cyph behaves as if you specified -K? (interactive prompt).
 
 Important: the bytes inside the key file are wrapped AS-IS (no normalization here).
 This is useful if you keep high-entropy binary keys.
@@ -254,11 +316,10 @@ The first encrypted frame is the meta filename.
 Remaining frames are file data encrypted in chunks using:
   crypto_secretstream_xchacha20poly1305 (XChaCha20-Poly1305 streaming AEAD)
 
-This gives confidentiality + integrity (tampering is detected).
+This provides confidentiality + integrity (tampering is detected).
 
 Key derivation:
   derived_key = crypto_pwhash(key_material_normalized, salt, opslimit, memlimit, alg_default)
-
 Then derived_key initializes secretstream.
 
 8) -WIPE (deletion)
@@ -296,19 +357,60 @@ If you pass only positional args (no options starting with '-'):
 
 10) Exchange (-e)
 -----------------
-Step 1:
-  cyph -e -k? -o mykey
+Step 1 (create exchange keyfile):
+  cyph -e -k <...> -o mykey
+  (-k is REQUIRED)
 
-Step 2:
-  cyph -e mykey.cyphkey -k?
+Step 2 (derive shared key and store it into the same .cyphkey):
+  cyph -e mykey.cyphkey -k <...>
+  (-k is REQUIRED)
+
+If -k points to *.cyphkey and -K is omitted, cyph behaves as if you specified -K? (prompt).
 )";
 
-static void usage_help() {
+
+// --- HELP OUTPUTS (split -h vs -help/--help) ---
+static void usage_help_short() {
+    std::cerr <<
+R"(cyph - quick usage (-h)
+
+BASICS:
+  Encrypt:
+    cyph -f <file...>   [-k <keyfile|key.cyphkey> | -k=<text> | -k?]   [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
+      * default if -k omitted: -k?
+      * if -k is .cyphkey and -K omitted: -K?
+
+  Decrypt:
+    cyph -i <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-d] [-s] [-WIPE]
+      * default if -k omitted: -k?
+      * if -k is .cyphkey and -K omitted: -K?
+
+  Wrap keyfile into .cyphkey:
+    cyph -key <keyfile> -o <name_or_path> [-K <file> | -K=<text> | -K?] [-level N]
+      * default if -K omitted: -K?
+
+  Exchange:
+    cyph -e -k <...> -o <name_or_path>          (step1)
+    cyph -e <file.cyphkey> -k <...>             (step2)
+      * -k is REQUIRED
+      * if -k is .cyphkey and -K omitted: -K?
+
+INFO:
+  cyph --version
+  cyph -help | --help     (full help)
+  cyph -man
+  cyph -manprint
+)";
+}
+
+static void usage_help_full() {
     std::cerr <<
 R"(cyph - streaming file encryption tool (.cyph) + wrapped keyfiles (.cyphkey)
 
 USAGE:
   cyph --version
+  cyph -h
+  cyph -help
   cyph --help
   cyph -man
   cyph -manprint
@@ -317,25 +419,28 @@ USAGE:
   cyph -e <file.cyphkey> -k <...>
 
 ENCRYPT:
-  cyph -f <file...> -k <keyfile|key.cyphkey> [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
-  cyph -f <file...> -k=<text>               [-o ...] [-level N] [-anon]
-  cyph -f <file...> -k?                     [-o ...] [-level N] [-anon]
+  cyph -f <file...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
+  NOTE: If -k is omitted, defaults to -k?
+        If -k points to *.cyphkey and -K is omitted, defaults to -K?
 
 DECRYPT:
-  cyph -i <file.cyph...> -k <keyfile|key.cyphkey> [-o ...] [-d] [-s] [-WIPE]
-  cyph -i <file.cyph...> -k=<text>                [-o ...] [-d] [-s]
-  cyph -i <file.cyph...> -k?                      [-o ...] [-d] [-s]
+  cyph -i <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o ...] [-d] [-s] [-WIPE]
+  NOTE: If -k is omitted, defaults to -k?
+        If -k points to *.cyphkey and -K is omitted, defaults to -K?
 
 WRAPPED KEY (.cyphkey):
   If -k <file.cyphkey>, cyph decrypts it into RAM to obtain real key material.
-  Requires master key: -K <file> / -K=<text> / -K?
+  Master key sources: -K <file> / -K=<text> / -K?
 
 CREATE .cyphkey:
-  cyph -key <keyfile> -o <name_or_path> (-K <file> | -K=<text> | -K?) [-level N]
+  cyph -key <keyfile> -o <name_or_path> [-K <file> | -K=<text> | -K?] [-level N]
+  NOTE: If -K is omitted, defaults to -K?
 
 OPTIONS:
   -level N   : 0=interactive, 1=moderate, 2=sensitive
   -anon      : encrypt only
+  -d         : restore stored name on decrypt (if present)
+  -s         : write decrypted output to stdout
   -WIPE      : after SUCCESS delete originals (encrypt) and/or on-disk key file (-k <file>)
 
 Run: cyph -man
@@ -365,7 +470,8 @@ struct KeySpec {
 };
 
 struct Args {
-    bool show_help = false;
+    bool show_help_full = false;   // -help/--help
+    bool show_help_short = false;  // -h
     bool show_version = false;
     bool show_man = false;
     bool man_print = false;
@@ -422,6 +528,7 @@ static Args parse_args(int argc, char** argv) {
         return false;
     };
 
+    // Shorthand mode (positional only) unchanged (already uses -k? defaults)
     if (all_positional_no_directives(argc, argv)) {
         if (argc == 2) {
             std::string f1 = argv[1];
@@ -455,6 +562,7 @@ static Args parse_args(int argc, char** argv) {
                 a.key.path = keyf;
                 a.restore_name = true;
 
+                // Default -K? if key file is cyphkey
                 if (has_ext(keyf, cyph::EXT_CYPHKEY)) {
                     a.master.src = KeySrc::Prompt;
                 }
@@ -480,8 +588,10 @@ static Args parse_args(int argc, char** argv) {
 
         if (arg == "--version") {
             a.show_version = true;
-        } else if (arg == "-h" || arg == "-help" || arg == "--help") {
-            a.show_help = true;
+        } else if (arg == "-h") {
+            a.show_help_short = true;
+        } else if (arg == "-help" || arg == "--help") {
+            a.show_help_full = true;
         } else if (arg == "-man") {
             a.show_man = true;
         } else if (arg == "-manprint") {
@@ -548,11 +658,17 @@ static Args parse_args(int argc, char** argv) {
         }
     }
 
-    if (a.show_help || a.show_version || a.show_man || a.man_print) return a;
+    // early exits
+    if (a.show_help_short || a.show_help_full || a.show_version || a.show_man || a.man_print) return a;
     if (a.mode == Mode::Gen) return a;
 
+    // Exchange: -k REQUIRED, -K defaults to prompt if -k is cyphkey
     if (a.mode == Mode::Exchange) {
         if (!a.key.is_set()) throw std::runtime_error("Key required for -e: -k <file> / -k=<text> / -k?");
+        if (a.key.is_file() && has_ext(a.key.path, cyph::EXT_CYPHKEY) && !a.master.is_set()) {
+            a.master.src = KeySrc::Prompt; // default -K?
+        }
+
         if (a.exchange_keyfile.empty()) {
             if (a.out.empty()) throw std::runtime_error("Missing -o <name_or_path> for -e (step1)");
         } else {
@@ -561,22 +677,27 @@ static Args parse_args(int argc, char** argv) {
         return a;
     }
 
+    // KeyWrap: -K defaults to prompt if omitted
     if (a.mode == Mode::KeyWrap) {
         if (a.keywrap_input_keyfile.empty()) throw std::runtime_error("Missing key file for -key");
         if (a.out.empty()) throw std::runtime_error("Missing -o <name_or_path> for -key");
-        if (!a.master.is_set()) throw std::runtime_error("Master key required for -key: -K <file> / -K=<text> / -K?");
+        if (!a.master.is_set()) a.master.src = KeySrc::Prompt; // default -K?
         return a;
     }
 
+    // Encrypt/Decrypt: choose exactly one mode
     const bool enc = !a.enc_inputs.empty();
     const bool dec = !a.dec_inputs.empty();
     if (enc == dec) throw std::runtime_error("Choose exactly one mode: -f (encrypt) OR -i (decrypt)");
-    if (!a.key.is_set()) throw std::runtime_error("Key required: -k <file> / -k=<text> / -k?");
+
+    // Default -k? if omitted for -f / -i
+    if (!a.key.is_set()) a.key.src = KeySrc::Prompt;
 
     if (a.anon && !enc) throw std::runtime_error("-anon is only valid with -f (encrypt)");
 
+    // If -k is .cyphkey, default -K? if omitted
     if (a.key.is_file() && has_ext(a.key.path, cyph::EXT_CYPHKEY) && !a.master.is_set()) {
-        throw std::runtime_error("Using -k <file.cyphkey> requires master key: -K <file> / -K=<text> / -K?");
+        a.master.src = KeySrc::Prompt;
     }
 
     return a;
@@ -612,19 +733,18 @@ static std::vector<unsigned char> material_from_keyspec_normalized(const KeySpec
     throw std::runtime_error("Key not provided");
 }
 
+static std::vector<unsigned char> resolve_master_key_material(const Args& args) {
+    return material_from_keyspec_normalized(args.master, "Enter master key (-K?): ");
+}
+
 static std::vector<unsigned char> resolve_main_key_material(const Args& args) {
     if (args.key.src == KeySrc::File && has_ext(args.key.path, cyph::EXT_CYPHKEY)) {
-        std::vector<unsigned char> master_mat =
-            material_from_keyspec_normalized(args.master, "Enter master key (-K?): ");
+        std::vector<unsigned char> master_mat = resolve_master_key_material(args);
         std::vector<unsigned char> wrapped_plain = cyph::decrypt_payload_to_bytes(args.key.path, master_mat);
         secure_wipe(master_mat);
         return wrapped_plain;
     }
     return material_from_keyspec_normalized(args.key, "Enter key (-k?): ");
-}
-
-static std::vector<unsigned char> resolve_master_key_material(const Args& args) {
-    return material_from_keyspec_normalized(args.master, "Enter master key (-K?): ");
 }
 
 static std::string make_encrypt_out_path(const std::string& in,
@@ -687,7 +807,7 @@ static std::string gen_key_text(std::size_t len = 64) {
     return out;
 }
 
-// ---- NEW: command line splitting for console mode ----
+// ---- console split (quotes + escapes) ----
 static std::vector<std::string> split_cmdline_quotes(const std::string& line) {
     std::vector<std::string> out;
     std::string cur;
@@ -731,9 +851,8 @@ static std::vector<std::string> split_cmdline_quotes(const std::string& line) {
     return out;
 }
 
-// ---- NEW: single execution entry point (no duplication) ----
+// ---- single entry point for execution (no duplication) ----
 static int run_command_vector(const std::vector<std::string>& argv_vec) {
-    // build argc/argv (char**) view for parse_args
     std::vector<char*> argv;
     argv.reserve(argv_vec.size());
     for (const auto& s : argv_vec) argv.push_back(const_cast<char*>(s.c_str()));
@@ -748,8 +867,12 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
             std::cout << "cyph " << cyph::VERSION << "\n";
             return 0;
         }
-        if (args.show_help) {
-            usage_help();
+        if (args.show_help_short) {
+            usage_help_short();
+            return 0;
+        }
+        if (args.show_help_full) {
+            usage_help_full();
             return 0;
         }
         if (args.show_man) {
@@ -775,8 +898,10 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
 
         const cyph::KdfParams kdf = cyph::kdf_params_for_level(args.level);
 
+        // Exchange
         if (args.mode == Mode::Exchange) {
-            std::vector<unsigned char> pw_mat = material_from_keyspec_normalized(args.key, "Enter key (-k?): ");
+            // NOTE: -k required, but it can be a cyphkey => then -K defaulted to prompt in parse_args
+            std::vector<unsigned char> pw_mat = resolve_main_key_material(args);
             if (pw_mat.empty()) throw std::runtime_error("Key material is empty (after normalization)");
 
             if (args.exchange_keyfile.empty()) {
@@ -854,7 +979,6 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
                 sodium_memzero(raw_shared, sizeof(raw_shared));
 
                 cyph::create_cyphkey_from_bytes(shared_key, keyfile_path, pw_mat, kdf, "ex_shared_v1");
-
                 std::cout << "Shared key stored in: " << keyfile_path << "\n";
 
                 secure_wipe(shared_key);
@@ -866,6 +990,7 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
             }
         }
 
+        // KeyWrap
         if (args.mode == Mode::KeyWrap) {
             std::vector<unsigned char> master = resolve_master_key_material(args);
             cyph::create_cyphkey_file(args.keywrap_input_keyfile, args.out, master, kdf);
@@ -874,6 +999,7 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
             return 0;
         }
 
+        // Encrypt/Decrypt
         std::vector<unsigned char> key_material = resolve_main_key_material(args);
         if (key_material.empty()) throw std::runtime_error("Key material is empty (after normalization)");
 
@@ -970,54 +1096,39 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
-        std::cerr << "Run: cyph --help\n";
+        std::cerr << "Run: cyph -help\n";
         return 2;
     }
 }
 
-// ---- NEW: interactive console mode ----
 static int run_console_mode() {
     std::cerr
         << "cyph console mode\n"
         << "Type commands as you would in terminal.\n"
-        << "Commands: help, man, version, exit\n";
+        << "Built-ins: help, h, man, version, exit\n";
 
     std::string line;
     while (true) {
         std::cerr << "cyph> ";
         if (!std::getline(std::cin, line)) {
             std::cerr << "\n";
-            break; // EOF (Ctrl+D)
+            break;
         }
 
-        // trim spaces
         auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
         while (!line.empty() && is_space(static_cast<unsigned char>(line.front()))) line.erase(line.begin());
         while (!line.empty() && is_space(static_cast<unsigned char>(line.back()))) line.pop_back();
         if (line.empty()) continue;
 
-        // quick built-ins (so you can type "help" instead of "--help")
         if (line == "exit" || line == "quit") break;
-        if (line == "help") {
-            run_command_vector({"cyph", "--help"});
-            continue;
-        }
-        if (line == "man") {
-            run_command_vector({"cyph", "-man"});
-            continue;
-        }
-        if (line == "version") {
-            run_command_vector({"cyph", "--version"});
-            continue;
-        }
+        if (line == "help") { (void)run_command_vector({"cyph", "-help"}); continue; }
+        if (line == "h")    { (void)run_command_vector({"cyph", "-h"});    continue; }
+        if (line == "man")  { (void)run_command_vector({"cyph", "-man"});  continue; }
+        if (line == "version") { (void)run_command_vector({"cyph", "--version"}); continue; }
 
         std::vector<std::string> args = split_cmdline_quotes(line);
         if (args.empty()) continue;
-
-        // prepend argv0
         args.insert(args.begin(), "cyph");
-
-        // execute; keep console alive even on error
         (void)run_command_vector(args);
     }
 
@@ -1030,12 +1141,10 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // NEW: console mode if no args
     if (argc == 1) {
         return run_console_mode();
     }
 
-    // normal mode
     std::vector<std::string> args;
     args.reserve(static_cast<std::size_t>(argc));
     for (int i = 0; i < argc; ++i) args.emplace_back(argv[i]);
