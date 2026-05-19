@@ -215,15 +215,15 @@ Encrypt a file (prompts for key by default):
 
 Decrypt a file (prompts for key by default, restore stored name):
   cyph secret.txt.cyph
-  (asks for key, writes restored filename via -d behavior)
+  (asks for key, writes restored filename via -r behavior)
 
 Encrypt with a key file:
   cyph secret.txt mykey.txt
-  (shorthand => -f secret.txt -k mykey.txt)
+  (shorthand => -e secret.txt -k mykey.txt)
 
 Decrypt with a key file:
   cyph secret.txt.cyph mykey.txt
-  (shorthand => -i secret.txt.cyph -k mykey.txt -d)
+  (shorthand => -d secret.txt.cyph -k mykey.txt -r)
 
 2) Key sources (-k)
 -------------------
@@ -242,7 +242,7 @@ You can provide key material in three ways:
      Prompt a key from stdin, then normalize (lowercase + remove whitespace).
 
 Defaults:
-  If -k is omitted in -f/-i mode, cyph behaves as if you specified -k? (interactive prompt).
+  If -k is omitted in -e/-d mode, cyph behaves as if you specified -k? (interactive prompt).
 
 NOTE: normalization makes keys easier to type/copy but also changes what the "real" password is.
 Example: "My Key 123" becomes "mykey123".
@@ -253,7 +253,7 @@ A .cyphkey is a cyph container whose payload bytes are a key.
 cyph never prints or writes the decrypted contents of a .cyphkey.
 
 Decrypt using a wrapped key (explicit):
-  cyph -i data.cyph -k data.cyphkey -K? -d
+  cyph -d data.cyph -k data.cyphkey -K? -r
 
 Shorthand:
   cyph data.cyph data.cyphkey
@@ -296,7 +296,7 @@ always reproduce the same derived key WITHOUT you remembering -level.
 6) -anon (privacy of filenames)
 -------------------------------
 cyph stores the original filename in the first encrypted frame (meta frame),
-so it can restore the name on decrypt with -d.
+so it can restore the name on decrypt with -r.
 
 If you use -anon, the stored (encrypted) name becomes "anonymous".
 This avoids leaking real filenames even to someone who later decrypts.
@@ -325,7 +325,7 @@ Then derived_key initializes secretstream.
 8) -WIPE (deletion)
 -------------------
 After successful encryption:
-  - deletes original input files (those passed via -f)
+  - deletes original input files (those passed via -e)
   - deletes on-disk key file if you used -k <file>
 
 After successful decryption:
@@ -338,13 +338,13 @@ This is a best-effort "delete". Secure deletion is not guaranteed on SSDs/journa
 If you pass only positional args (no options starting with '-'):
 
   cyph file.cyph
-    -> decrypt, ask key (-k?), restore name (-d)
+    -> decrypt, ask key (-k?), restore name (-r)
 
   cyph file.cyph key.cyphkey
-    -> decrypt with wrapped key, ask master key (-K?), restore name (-d)
+    -> decrypt with wrapped key, ask master key (-K?), restore name (-r)
 
   cyph file.cyph keyfile
-    -> decrypt with keyfile, restore name (-d)
+    -> decrypt with keyfile, restore name (-r)
 
   cyph plaintext keyfile
     -> encrypt plaintext using keyfile
@@ -355,14 +355,14 @@ If you pass only positional args (no options starting with '-'):
   cyph plaintext keyfile   (both not .cyph)
     -> encrypt first using second as keyfile
 
-10) Exchange (-e)
+10) Exchange (-exchange)
 -----------------
 Step 1 (create exchange keyfile):
-  cyph -e -k <...> -o mykey
+  cyph -exchange -k <...> -o mykey
   (-k is REQUIRED)
 
 Step 2 (derive shared key and store it into the same .cyphkey):
-  cyph -e mykey.cyphkey -k <...>
+  cyph -exchange mykey.cyphkey -k <...>
   (-k is REQUIRED)
 
 If -k points to *.cyphkey and -K is omitted, cyph behaves as if you specified -K? (prompt).
@@ -376,12 +376,12 @@ R"(cyph - quick usage (-h)
 
 BASICS:
   Encrypt:
-    cyph -f <file...>   [-k <keyfile|key.cyphkey> | -k=<text> | -k?]   [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
+    cyph -e <file...>  [-k <keyfile|key.cyphkey> | -k=<text> | -k?]   [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
       * default if -k omitted: -k?
       * if -k is .cyphkey and -K omitted: -K?
 
   Decrypt:
-    cyph -i <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-d] [-s] [-WIPE]
+    cyph -d <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-r] [-s] [-WIPE]
       * default if -k omitted: -k?
       * if -k is .cyphkey and -K omitted: -K?
 
@@ -390,8 +390,8 @@ BASICS:
       * default if -K omitted: -K?
 
   Exchange:
-    cyph -e -k <...> -o <name_or_path>          (step1)
-    cyph -e <file.cyphkey> -k <...>             (step2)
+    cyph -exchange -k <...> -o <name_or_path>          (step1)
+    cyph -exchange <file.cyphkey> -k <...>             (step2)
       * -k is REQUIRED
       * if -k is .cyphkey and -K omitted: -K?
 
@@ -415,16 +415,16 @@ USAGE:
   cyph -man
   cyph -manprint
   cyph -gen [-o <path>]
-  cyph -e -k <...> -o <name_or_path>
-  cyph -e <file.cyphkey> -k <...>
+  cyph -exchange -k <...> -o <name_or_path>
+  cyph -exchange <file.cyphkey> -k <...>
 
 ENCRYPT:
-  cyph -f <file...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
+  cyph -e <file...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o <out_file_or_dir>] [-level N] [-anon] [-WIPE]
   NOTE: If -k is omitted, defaults to -k?
         If -k points to *.cyphkey and -K is omitted, defaults to -K?
 
 DECRYPT:
-  cyph -i <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o ...] [-d] [-s] [-WIPE]
+  cyph -d <file.cyph...> [-k <keyfile|key.cyphkey> | -k=<text> | -k?] [-o ...] [-r] [-s] [-WIPE]
   NOTE: If -k is omitted, defaults to -k?
         If -k points to *.cyphkey and -K is omitted, defaults to -K?
 
@@ -439,7 +439,7 @@ CREATE .cyphkey:
 OPTIONS:
   -level N   : 0=interactive, 1=moderate, 2=sensitive
   -anon      : encrypt only
-  -d         : restore stored name on decrypt (if present)
+  -r         : restore stored name on decrypt (if present)
   -s         : write decrypted output to stdout
   -WIPE      : after SUCCESS delete originals (encrypt) and/or on-disk key file (-k <file>)
 
@@ -601,7 +601,7 @@ static Args parse_args(int argc, char** argv) {
             a.mode = Mode::Gen;
         } else if (arg == "-s") {
             a.show_stdout = true;
-        } else if (arg == "-d") {
+        } else if (arg == "-r") {
             a.restore_name = true;
         } else if (arg == "-WIPE") {
             a.wipe = true;
@@ -635,24 +635,24 @@ static Args parse_args(int argc, char** argv) {
             a.keywrap = true;
             a.mode = Mode::KeyWrap;
             a.keywrap_input_keyfile = need(i, "-key");
-        } else if (arg == "-e") {
+        } else if (arg == "-exchange") {
             a.exchange = true;
             a.mode = Mode::Exchange;
             if (i + 1 < argc && !looks_like_option(argv[i + 1])) {
                 a.exchange_keyfile = std::string(argv[++i]);
             }
-        } else if (arg == "-f") {
+        } else if (arg == "-e") {
             a.mode = Mode::Encrypt;
             while (i + 1 < argc && !looks_like_option(argv[i + 1])) {
                 a.enc_inputs.emplace_back(argv[++i]);
             }
-            if (a.enc_inputs.empty()) throw std::runtime_error("No paths after -f");
-        } else if (arg == "-i") {
+            if (a.enc_inputs.empty()) throw std::runtime_error("No paths after -e");
+        } else if (arg == "-d") {
             a.mode = Mode::Decrypt;
             while (i + 1 < argc && !looks_like_option(argv[i + 1])) {
                 a.dec_inputs.emplace_back(argv[++i]);
             }
-            if (a.dec_inputs.empty()) throw std::runtime_error("No paths after -i");
+            if (a.dec_inputs.empty()) throw std::runtime_error("No paths after -d");
         } else {
             throw std::runtime_error("Unknown argument: " + arg);
         }
@@ -664,15 +664,15 @@ static Args parse_args(int argc, char** argv) {
 
     // Exchange: -k REQUIRED, -K defaults to prompt if -k is cyphkey
     if (a.mode == Mode::Exchange) {
-        if (!a.key.is_set()) throw std::runtime_error("Key required for -e: -k <file> / -k=<text> / -k?");
+        if (!a.key.is_set()) throw std::runtime_error("Key required for -exchange: -k <file> / -k=<text> / -k?");
         if (a.key.is_file() && has_ext(a.key.path, cyph::EXT_CYPHKEY) && !a.master.is_set()) {
             a.master.src = KeySrc::Prompt; // default -K?
         }
 
         if (a.exchange_keyfile.empty()) {
-            if (a.out.empty()) throw std::runtime_error("Missing -o <name_or_path> for -e (step1)");
+            if (a.out.empty()) throw std::runtime_error("Missing -o <name_or_path> for -exchange (step1)");
         } else {
-            if (!a.out.empty()) throw std::runtime_error("-o is not used with -e <file> (step2)");
+            if (!a.out.empty()) throw std::runtime_error("-o is not used with -exchange <file> (step2)");
         }
         return a;
     }
@@ -688,12 +688,12 @@ static Args parse_args(int argc, char** argv) {
     // Encrypt/Decrypt: choose exactly one mode
     const bool enc = !a.enc_inputs.empty();
     const bool dec = !a.dec_inputs.empty();
-    if (enc == dec) throw std::runtime_error("Choose exactly one mode: -f (encrypt) OR -i (decrypt)");
+    if (enc == dec) throw std::runtime_error("Choose exactly one mode: -e (encrypt) OR -d (decrypt)");
 
-    // Default -k? if omitted for -f / -i
+    // Default -k? if omitted for -e / -d
     if (!a.key.is_set()) a.key.src = KeySrc::Prompt;
 
-    if (a.anon && !enc) throw std::runtime_error("-anon is only valid with -f (encrypt)");
+    if (a.anon && !enc) throw std::runtime_error("-anon is only valid with -e (encrypt)");
 
     // If -k is .cyphkey, default -K? if omitted
     if (a.key.is_file() && has_ext(a.key.path, cyph::EXT_CYPHKEY) && !a.master.is_set()) {
@@ -922,7 +922,7 @@ static int run_command_vector(const std::vector<std::string>& argv_vec) {
                 std::cout << "Public key:\n" << pub_text << "\n";
                 std::cout << "Fingerprint (6 words): " << fp << "\n";
                 std::cout << "Now run on the same machine:\n";
-                std::cout << "  cyph -e " << cyph::ensure_cyphkey_ext(args.out) << " -k?\n";
+                std::cout << "  cyph -exchange " << cyph::ensure_cyphkey_ext(args.out) << " -k?\n";
 
                 sodium_memzero(pk, sizeof(pk));
                 secure_wipe(pw_mat);
