@@ -1,32 +1,36 @@
 ===================================================================
- icheck — Универсальная утилита сетевой диагностики
+ icheck — Universal Network Diagnostic Utility
 ===================================================================
-Использование: icheck [АРГУМЕНТЫ] [URL/IP]
+Usage: icheck [COMMAND/ARGUMENT] [URL/IP] [OPTIONS]
 
-Если запустить без аргументов (или с -f), выполняется быстрая проверка.
-Если передать URL или IP без дефисов (например, icheck google.com),
-утилита проверит только эту конкретную цель (Ping + HTTP/HTTPS).
+If run without arguments (or with -f), a fast check is executed.
+If a URL or IP is provided without dashes (e.g., icheck google.com),
+the utility will check only that specific target (Ping + HTTP/HTTPS).
 
-Режимы работы (Профили):
-  -f,  -fast       Быстрая проверка: Локальный IP, Публичный IP, пинг Google (По умолчанию)
-  -m,  -more       Стандартная проверка: IP, локация, DNS, базовые сайты
-  -a,  -all        Полный аудит: Все IP, DNS, проверка всех сайтов из баз + Blacklist
+Commands:
+  update           Fetch and install the latest version from GitHub
+  whois <IP> [-s]  Perform a WHOIS lookup (-s for short summary & VPS check)
 
-Точечные проверки (можно комбинировать):
-  -l,  -local      Показать только локальный IP
-  -p,  -public     Показать только публичный IP и локацию
-  -d,  -dns        Показать только текущие DNS-серверы
-  -bl, -blacklist  Проверить публичный IP в антиспам-базах (DNSBL)
-  -proc <имя>      Проверить статус и ресурсы запущенного процесса (напр. icheck -proc vpn)
+Modes (Profiles):
+  -f,  -fast       Fast check: Local IP, Public IP, Ping Google (Default)
+  -m,  -more       Standard check: IP, location, DNS, default targets
+  -a,  -all        Full audit: All IPs, DNS, all targets + Blacklist check
 
-Модификаторы и настройки:
-  -t,  -time       Выводить точное время ответа (Ping и HTTPS)
-  -timeout <сек>   Таймаут для сетевых запросов (по умолчанию: 5 сек)
-  -4,  -ipv4       Принудительно использовать только IPv4
-  -6,  -ipv6       Принудительно использовать только IPv6
-  -h,  -help       Показать эту справку
+Targeted Checks (can be combined):
+  -l,  -local      Show only Local IP
+  -p,  -public     Show only Public IP and location
+  -d,  -dns        Show only current DNS servers
+  -bl, -blacklist  Check Public IP against anti-spam databases (DNSBL)
+  -proc <name>     Check status and resources of a process (e.g., icheck -proc vpn)
 
-Файлы конфигурации:
-  Конфиг (Сайты): ~/.config/icheck/config.conf
-  База (Описания): ~/.config/icheck/database.txt
+Modifiers & Settings:
+  -t,  -time       Show exact response times (Ping and HTTPS)
+  -timeout <sec>   Timeout for network requests (default: 5 sec)
+  -4,  -ipv4       Force IPv4 only
+  -6,  -ipv6       Force IPv6 only
+  -h,  -help       Show this help message
+
+Configuration Files:
+  Config (Targets): ~/.config/icheck/config.conf
+  Database (Desc):  ~/.config/icheck/database.txt
 ===================================================================
