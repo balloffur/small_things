@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 
 # ==========================================
@@ -82,6 +81,7 @@ do_whois() {
 
     if [[ "$mode" == "-s" ]]; then
         echo -e "${CYAN}--- [ Summary for $ip ] ---${NC}"
+        # Using -r to avoid huge RIPE database spam
         local country=$(whois -r "$ip" | grep -i "^country:" | head -n 1 | awk '{print $2}')
         local netname=$(whois -r "$ip" | grep -i "^netname:" | head -n 1 | cut -d':' -f2- | xargs)
         
@@ -100,29 +100,60 @@ do_whois() {
 }
 
 # ==========================================
-# Argument Parser
+# Argument Parser (Fixed to prevent shift errors)
 # ==========================================
 while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        update) RUN_MODE="update"; shift ;;
-        whois) RUN_MODE="whois"; TARGET_IP="$2"; MODE="$3"; shift 2 ;;
-        -f|-fast) RUN_MODE="fast" ;;
-        -m|-more) RUN_MODE="standard" ;;
-        -a|-all) RUN_MODE="all"; CHECK_ALL=1 ;;
-        -l|-local) RUN_MODE="custom"; SHOW_LOCAL=1 ;;
-        -p|-public|-publick) RUN_MODE="custom"; SHOW_PUBLIC=1 ;;
-        -d|-dns) RUN_MODE="custom"; SHOW_DNS=1 ;;
-        -bl|-blacklist) RUN_MODE="custom"; SHOW_BL=1 ;;
-        -proc) RUN_MODE="custom"; SHOW_PROC=1; TARGET_PROC="$2"; shift ;;
-        -t|-time) SHOW_TIME=1 ;;
-        -timeout) TIMEOUT="$2"; shift ;;
-        -4|-ipv4) IP_VER="-4"; PING_VER="ping" ;;
-        -6|-ipv6) IP_VER="-6"; PING_VER="ping6" ;;
-        -h|-help|--help) cat "$HELP_FILE" 2>/dev/null || echo "Help file not found."; exit 0 ;;
-        -*) echo -e "${RED}Unknown argument: $1${NC}"; exit 1 ;;
-        *) RUN_MODE="target"; CUSTOM_TARGET="$1" ;;
+    case "$1" in
+        update) 
+            RUN_MODE="update"
+            shift 
+            ;;
+        whois) 
+            RUN_MODE="whois"
+            TARGET_IP="$2"
+            MODE="$3"
+            if [[ "$MODE" == "-s" ]]; then
+                shift 3
+            elif [[ -n "$TARGET_IP" ]]; then
+                shift 2
+            else
+                shift 1
+            fi
+            ;;
+        -f|-fast) RUN_MODE="fast"; shift ;;
+        -m|-more) RUN_MODE="standard"; shift ;;
+        -a|-all) RUN_MODE="all"; CHECK_ALL=1; shift ;;
+        -l|-local) RUN_MODE="custom"; SHOW_LOCAL=1; shift ;;
+        -p|-public|-publick) RUN_MODE="custom"; SHOW_PUBLIC=1; shift ;;
+        -d|-dns) RUN_MODE="custom"; SHOW_DNS=1; shift ;;
+        -bl|-blacklist) RUN_MODE="custom"; SHOW_BL=1; shift ;;
+        -proc) 
+            RUN_MODE="custom"
+            SHOW_PROC=1
+            TARGET_PROC="$2"
+            [[ -n "$2" ]] && shift 2 || shift 1
+            ;;
+        -t|-time) SHOW_TIME=1; shift ;;
+        -timeout) 
+            TIMEOUT="$2"
+            [[ -n "$2" ]] && shift 2 || shift 1
+            ;;
+        -4|-ipv4) IP_VER="-4"; PING_VER="ping"; shift ;;
+        -6|-ipv6) IP_VER="-6"; PING_VER="ping6"; shift ;;
+        -h|-help|--help) 
+            cat "$HELP_FILE" 2>/dev/null || echo "Help file not found."
+            exit 0 
+            ;;
+        -*) 
+            echo -e "${RED}Unknown argument: $1${NC}"
+            exit 1 
+            ;;
+        *) 
+            RUN_MODE="target"
+            CUSTOM_TARGET="$1"
+            shift 
+            ;;
     esac
-    shift
 done
 
 # Mode Logic
@@ -420,5 +451,3 @@ fi
 [ $SHOW_PROC -eq 1 ] && check_proc
 
 echo ""
-
-```
