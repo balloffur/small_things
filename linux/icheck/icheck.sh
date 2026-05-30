@@ -40,7 +40,7 @@ NC="\033[0m"
 # ==========================================
 # Update Function
 # ==========================================
-do_update() {
+function do_update {
     echo -e "\n${CYAN}--- [ Updating icheck ] ---${NC}"
     local update_url="https://raw.githubusercontent.com/balloffur/small_things/refs/heads/main/linux/icheck/icheck.sh"
     local tmp_file="/tmp/icheck_update_tmp.sh"
@@ -70,7 +70,7 @@ do_update() {
 # ==========================================
 # WHOIS Function
 # ==========================================
-do_whois() {
+function do_whois {
     local ip=$1
     local mode=$2
 
@@ -81,7 +81,6 @@ do_whois() {
 
     if [[ "$mode" == "-s" ]]; then
         echo -e "${CYAN}--- [ Summary for $ip ] ---${NC}"
-        # Using -r to avoid huge RIPE database spam
         local country=$(whois -r "$ip" | grep -i "^country:" | head -n 1 | awk '{print $2}')
         local netname=$(whois -r "$ip" | grep -i "^netname:" | head -n 1 | cut -d':' -f2- | xargs)
         
@@ -100,7 +99,7 @@ do_whois() {
 }
 
 # ==========================================
-# Argument Parser (Fixed to prevent shift errors)
+# Argument Parser
 # ==========================================
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
@@ -183,7 +182,7 @@ fi
 # Helper Functions
 # ==========================================
 
-require_tool() {
+function require_tool {
     local cmd="$1"
     local apt_pkg="$2"
     if ! command -v "$cmd" &> /dev/null; then
@@ -193,7 +192,7 @@ require_tool() {
     fi
 }
 
-lookup_db() {
+function lookup_db {
     local query="$1"
     if [ -f "$DB_FILE" ]; then
         local result=$(awk -F'|' -v q="$query" '$1 == q {print $2; exit}' "$DB_FILE")
@@ -209,7 +208,7 @@ lookup_db() {
 # ==========================================
 # Fast Check Mode
 # ==========================================
-check_fast() {
+function check_fast {
     echo -e "\n${CYAN}⚡ [ Fast Status ] ⚡${NC}"
     
     local lip=$(hostname -I | awk '{print $1}')
@@ -242,7 +241,7 @@ check_fast() {
 # Main Functions
 # ==========================================
 
-check_custom_target() {
+function check_custom_target {
     local clean_target=$(echo "$CUSTOM_TARGET" | sed -E 's|https?://||; s|/.*||')
     echo -e "\n${CYAN}--- [ Target Analysis: $clean_target ] ---${NC}"
     
@@ -283,7 +282,7 @@ check_custom_target() {
     echo ""
 }
 
-check_ping() {
+function check_ping {
     local targets=($CUSTOM_PING_TARGETS "${DEFAULT_PING_TARGETS[@]}")
     echo -e "\n${CYAN}--- [ Internet Reachability (ICMP) ] ---${NC}"
     
@@ -300,7 +299,7 @@ check_ping() {
     done
 }
 
-check_http() {
+function check_http {
     local targets=($CUSTOM_HTTP_TARGETS "${DEFAULT_HTTP_TARGETS[@]}")
     echo -e "\n${CYAN}--- [ Website Reachability (HTTPS) ] ---${NC}"
     
@@ -319,7 +318,7 @@ check_http() {
     done
 }
 
-get_local_ip() {
+function get_local_ip {
     echo -e "\n${CYAN}--- [ Local Network ] ---${NC}"
     local ip=$(hostname -I | awk '{print $1}')
     if [ -n "$ip" ]; then
@@ -330,7 +329,7 @@ get_local_ip() {
     fi
 }
 
-get_public_info() {
+function get_public_info {
     echo -e "\n${CYAN}--- [ Public Network ] ---${NC}"
     
     local trace_data=$(curl -s $IP_VER --max-time "$TIMEOUT" https://cloudflare.com/cdn-cgi/trace)
@@ -351,7 +350,7 @@ get_public_info() {
     fi
 }
 
-get_dns() {
+function get_dns {
     echo -e "\n${CYAN}--- [ DNS Servers ] ---${NC}"
     local dns_list=""
     
@@ -371,7 +370,7 @@ get_dns() {
     fi
 }
 
-check_proc() {
+function check_proc {
     echo -e "\n${CYAN}--- [ Process Monitoring: $TARGET_PROC ] ---${NC}"
     local pid=$(pgrep -f "$TARGET_PROC" | head -n 1)
     
@@ -390,7 +389,7 @@ check_proc() {
     fi
 }
 
-check_blacklist() {
+function check_blacklist {
     local ip=$(curl -s -4 --max-time "$TIMEOUT" https://cloudflare.com/cdn-cgi/trace | grep -E "^ip=" | cut -d= -f2)
     
     if [ -z "$ip" ]; then
