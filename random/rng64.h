@@ -90,7 +90,7 @@ private:
 
     std::uint64_t state;
 
-    static constexpr std::uint64_t A = 6364136223846793005ULL;
+    static constexpr std::uint64_t A = 0xd1342543de82ef95;
     static constexpr std::uint64_t C = 1ULL;
     static constexpr std::uint64_t DEFAULT_SEED_LOCAL = DEFAULT_SEED;
 
